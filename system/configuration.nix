@@ -8,13 +8,14 @@
 { config, lib, pkgs, ... }:
 
 {
-  imports = [
-    # include NixOS-WSL modules
-    <nixos-wsl/modules>
-  ];
+  # now managed in flake.nix
+  # imports = [
+  #   # include NixOS-WSL modules
+  #   <nixos-wsl/modules>
+  # ];
 
-  wsl.enable = true;
-  wsl.defaultUser = "nixos";
+  # wsl.enable = true;
+  # wsl.defaultUser = "nixos";
 
   environment.systemPackages = with pkgs; [
 
