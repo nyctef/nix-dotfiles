@@ -1,4 +1,5 @@
 #/bin/sh
 pushd $(dirname -- "$0")
-home-manager switch -f ./users/generic.nix
+nix build .#homeManagerConfigurations.generic.activationPackage
+./result/activate
 popd
