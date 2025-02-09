@@ -25,6 +25,17 @@
     lib = nixpkgs.lib;
   in {
 
+    homeManagerConfigurations = {
+      generic = home-manager.lib.homeManagerConfiguration {
+        inherit pkgs;
+
+	modules = [
+	    ./users/generic.nix
+	];
+
+      };
+    };
+
     nixosConfigurations = {
       # ↓ is the hostname - needs to be parameterizable
       nixos = lib.nixosSystem {
