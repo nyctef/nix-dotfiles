@@ -47,6 +47,12 @@
 	  {
 	    # system.stateVersion = "unstable";
 	    wsl.enable = true;
+	    
+	    virtualisation.docker.enable = true;
+            virtualisation.docker.daemon.settings = {
+              hosts = ["unix:///var/run/docker.sock" "tcp://0.0.0.0:2375"];
+            };
+            users.users.nixos.extraGroups = [ "docker" ];
 	  }
 	];
       };
