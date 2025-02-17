@@ -11,6 +11,13 @@
 name = "Nyctef"
 email = "nyctef@nyctef.com"
 
+# https://jj-vcs.github.io/jj/latest/config/#conditional-variables
+[[--scope]]
+--when.repositories = ["~/rg"]
+[--scope.user]
+name = "Mark Jordan"
+email = "mark.jordan@red-gate.com"
+
 [ui]
 editor = "nvim --clean"
 merge-editor = "p4merge"
