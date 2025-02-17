@@ -37,8 +37,7 @@
     };
 
     nixosConfigurations = {
-      # ↓ is the hostname - needs to be parameterizable
-      nixos = lib.nixosSystem {
+      tachikoma = lib.nixosSystem {
         inherit system;
 
 	modules = [
@@ -53,6 +52,9 @@
               hosts = ["unix:///var/run/docker.sock" "tcp://0.0.0.0:2375"];
             };
             users.users.nixos.extraGroups = [ "docker" ];
+
+	    networking.hostName = "tachikoma";
+
 	  }
 	];
       };
