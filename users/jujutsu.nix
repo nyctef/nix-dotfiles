@@ -5,6 +5,8 @@
     jujutsu
   ];
 
+  # TODO: maybe just extract this into a separate toml file?
+  # that way we can get syntax highlighting / schema validation etc
   xdg.configFile."jj/config.toml".text = ''
 
 [user]
