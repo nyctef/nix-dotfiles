@@ -23,6 +23,7 @@ email = "mark.jordan@red-gate.com"
 [ui]
 editor = "nvim --clean"
 merge-editor = "p4merge"
+default-command = ["st", "--no-pager"]
 
 [merge-tools]
 p4merge.merge-args = ["$base", "$left", "$right", "$output"]
