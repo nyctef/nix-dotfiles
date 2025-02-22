@@ -7,6 +7,7 @@ in {
   imports = [
     ./jujutsu.nix
     ./tmux.nix
+    ./neovim
   ];
 
   options.genHome = {
@@ -50,8 +51,6 @@ in {
     # (pkgs.writeShellScriptBin "my-hello" ''
     #   echo "Hello, ${config.home.username}!"
     # '')
-
-    neovim
 
     git
     gh
