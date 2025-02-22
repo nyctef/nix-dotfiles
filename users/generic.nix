@@ -96,5 +96,8 @@ in {
   # Let Home Manager install and manage itself.
   programs.home-manager.enable = true;
 
+  # install fish, and tell HM to manage it (set session variables etc)
+  programs.fish.enable = true;
+
   };
 }
