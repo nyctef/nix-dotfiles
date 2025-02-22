@@ -1,16 +1,26 @@
-{ config, pkgs, ... }:
+{ lib, config, pkgs, ... }:
 
-{
+with lib;
+let cfg = config.genHome;
+in {
 
   imports = [
     ./jujutsu.nix
     ./tmux.nix
   ];
 
+  options.genHome = {
+    username = mkOption {
+      type = types.str;
+      default = "nixos";
+    };
+  };
+
+  config = {
   # Home Manager needs a bit of information about you and the paths it should
   # manage.
-  home.username = "nixos";
-  home.homeDirectory = "/home/nixos";
+  home.username = cfg.username;
+  home.homeDirectory = "/home/${cfg.username}";
 
   # This value determines the Home Manager release that your configuration is
   # compatible with. This helps avoid breakage when a new Home Manager release
@@ -86,4 +96,6 @@
 
   # Let Home Manager install and manage itself.
   programs.home-manager.enable = true;
+
+  };
 }

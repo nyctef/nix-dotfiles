@@ -25,12 +25,26 @@
     lib = nixpkgs.lib;
   in {
 
-    homeManagerConfigurations = {
-      generic = home-manager.lib.homeManagerConfiguration {
+    homeConfigurations = {
+      "nixos@tachikoma" = home-manager.lib.homeManagerConfiguration {
         inherit pkgs;
 
 	modules = [
 	    ./users/generic.nix
+	    {
+		genHome.username = "nyctef";
+	    }
+	];
+
+      };
+      "nyctef@logikoma" = home-manager.lib.homeManagerConfiguration {
+        inherit pkgs;
+
+	modules = [
+	    ./users/generic.nix
+	    {
+		genHome.username = "nyctef";
+	    }
 	];
 
       };
