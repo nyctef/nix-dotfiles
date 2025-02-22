@@ -61,6 +61,7 @@
         inherit system;
 
 	modules = [
+	  ./system/configuration.nix
 	  ./system/logikoma/configuration.nix
 	  {
 	    networking.hostName = "logikoma";
