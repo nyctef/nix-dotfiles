@@ -54,7 +54,16 @@
             users.users.nixos.extraGroups = [ "docker" ];
 
 	    networking.hostName = "tachikoma";
+	  }
+	];
+      };
+      logikoma = lib.nixosSystem {
+        inherit system;
 
+	modules = [
+	  ./system/logikoma/configuration.nix
+	  {
+	    networking.hostName = "logikoma";
 	  }
 	];
       };
