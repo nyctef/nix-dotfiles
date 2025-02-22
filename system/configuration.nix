@@ -27,6 +27,11 @@
 
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
   
+  # set fish as the default shell for users
+  users.defaultUserShell = pkgs.fish;
+  # we have to install it here even though it's also installed in home-manager,
+  # or apparently lots of things will break
+  programs.fish.enable = true;
 
   # This value determines the NixOS release from which the default
   # settings for stateful data, like file locations and database versions
