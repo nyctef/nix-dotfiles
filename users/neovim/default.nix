@@ -30,7 +30,11 @@ in {
            general = [];
          };
          startupPlugins = {
-           general = [];
+           general = {
+             telescope = with pkgs.vimPlugins; [
+               telescope-nvim
+	     ];
+           };
            # themer = with pkgs; [
            #   # you can even make subcategories based on categories and settings sets!
            #   (builtins.getAttr packageDef.categories.colorscheme {
@@ -87,10 +91,15 @@ in {
            # they contain a settings set defined above
            # see :help nixCats.flake.outputs.settings
            settings = {
-             wrapRc = true;
+	     # temporary setting: stop nixCats from managing the config dir
+	     # instead we create a symlink from ~/.config/nvim/ pointing at
+	     # this folder for faster iteration without having to do a
+	     # home-manager rebuild for every change (nixCats still manages
+	     # installing plugins, though)
+             wrapRc = false;
              # IMPORTANT:
              # your alias may not conflict with your other packages.
-             aliases = [ "vim" "homeVim" ];
+             aliases = [ "vim" "nvim" ];
              # neovim-unwrapped = inputs.neovim-nightly-overlay.packages.${pkgs.system}.neovim;
            };
            # and a set of categories that you want
