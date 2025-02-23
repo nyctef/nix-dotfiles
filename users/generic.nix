@@ -52,7 +52,6 @@ in {
     #   echo "Hello, ${config.home.username}!"
     # '')
 
-    git
     gh
     git-crypt
     gnupg
@@ -101,6 +100,17 @@ in {
 
   # install fish, and tell HM to manage it (set session variables etc)
   programs.fish.enable = true;
+
+  # git stuff
+  programs.git = {
+    enable = true;
+    extraConfig = {
+      # include diff in commit message editor
+      commit.verbose = true;
+
+    };
+
+  };
 
   };
 }
