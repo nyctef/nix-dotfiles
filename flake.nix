@@ -13,80 +13,94 @@
     nixCats.url = "github:BirdeeHub/nixCats-nvim";
   };
 
-  outputs = { nixpkgs, nixos-wsl, home-manager, ... }@inputs:
+  outputs =
+    {
+      nixpkgs,
+      nixos-wsl,
+      home-manager,
+      ...
+    }@inputs:
 
-  let
-    system = "x86_64-linux";
+    let
+      system = "x86_64-linux";
 
-    pkgs = import nixpkgs {
-      inherit system;
-
-      config = { allowUnfree = true; };
-    };
-
-    lib = nixpkgs.lib;
-  in {
-
-    homeConfigurations = {
-      "nixos@tachikoma" = home-manager.lib.homeManagerConfiguration {
-        inherit pkgs;
-
-	modules = [
-	    ./users/generic.nix
-	    {
-		genHome.username = "nixos";
-	    }
-	];
-
-	extraSpecialArgs = { inherit inputs; };
-
-      };
-      "nyctef@logikoma" = home-manager.lib.homeManagerConfiguration {
-        inherit pkgs;
-
-	modules = [
-	    ./users/generic.nix
-	    {
-		genHome.username = "nyctef";
-	    }
-	];
-
-      };
-    };
-
-    nixosConfigurations = {
-      tachikoma = lib.nixosSystem {
+      pkgs = import nixpkgs {
         inherit system;
 
-	modules = [
-	  ./system/configuration.nix
-	  nixos-wsl.nixosModules.default
-	  {
-	    # system.stateVersion = "unstable";
-	    wsl.enable = true;
-	    
-	    virtualisation.docker.enable = true;
-            virtualisation.docker.daemon.settings = {
-              hosts = ["unix:///var/run/docker.sock" "tcp://0.0.0.0:2375"];
-            };
-            users.users.nixos.extraGroups = [ "docker" ];
-
-	    networking.hostName = "tachikoma";
-	  }
-	];
+        config = {
+          allowUnfree = true;
+        };
       };
-      logikoma = lib.nixosSystem {
-        inherit system;
 
-	modules = [
-	  ./system/configuration.nix
-	  ./system/logikoma/configuration.nix
-	  {
-	    networking.hostName = "logikoma";
-	  }
-	];
+      lib = nixpkgs.lib;
+    in
+    {
+
+      homeConfigurations = {
+        "nixos@tachikoma" = home-manager.lib.homeManagerConfiguration {
+          inherit pkgs;
+
+          modules = [
+            ./users/generic.nix
+            {
+              genHome.username = "nixos";
+            }
+          ];
+
+          extraSpecialArgs = { inherit inputs; };
+
+        };
+        "nyctef@logikoma" = home-manager.lib.homeManagerConfiguration {
+          inherit pkgs;
+
+          modules = [
+            ./users/generic.nix
+            {
+              genHome.username = "nyctef";
+            }
+          ];
+
+        };
       };
+
+      nixosConfigurations = {
+        tachikoma = lib.nixosSystem {
+          inherit system;
+
+          modules = [
+            ./system/configuration.nix
+            nixos-wsl.nixosModules.default
+            {
+              # system.stateVersion = "unstable";
+              wsl.enable = true;
+
+              virtualisation.docker.enable = true;
+              virtualisation.docker.daemon.settings = {
+                hosts = [
+                  "unix:///var/run/docker.sock"
+                  "tcp://0.0.0.0:2375"
+                ];
+              };
+              users.users.nixos.extraGroups = [ "docker" ];
+
+              networking.hostName = "tachikoma";
+            }
+          ];
+        };
+        logikoma = lib.nixosSystem {
+          inherit system;
+
+          modules = [
+            ./system/configuration.nix
+            ./system/logikoma/configuration.nix
+            {
+              networking.hostName = "logikoma";
+            }
+          ];
+        };
+      };
+
+      formatter."${system}" = nixpkgs.legacyPackages."${system}".nixfmt-rfc-style;
+
     };
-
-  };
 }
