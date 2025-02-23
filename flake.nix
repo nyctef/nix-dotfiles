@@ -48,7 +48,6 @@
           ];
 
           extraSpecialArgs = { inherit inputs; };
-
         };
         "nyctef@logikoma" = home-manager.lib.homeManagerConfiguration {
           inherit pkgs;
@@ -60,6 +59,7 @@
             }
           ];
 
+          extraSpecialArgs = { inherit inputs; };
         };
       };
 
