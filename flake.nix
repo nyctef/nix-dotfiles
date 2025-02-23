@@ -9,9 +9,11 @@
 
     nixos-wsl.url = "github:nix-community/NixOS-WSL/main";
     nixos-wsl.inputs.nixpkgs.follows = "nixpkgs";
+
+    nixCats.url = "github:BirdeeHub/nixCats-nvim";
   };
 
-  outputs = { nixpkgs, nixos-wsl, home-manager, ... }:
+  outputs = { nixpkgs, nixos-wsl, home-manager, ... }@inputs:
 
   let
     system = "x86_64-linux";
@@ -35,6 +37,8 @@
 		genHome.username = "nixos";
 	    }
 	];
+
+	extraSpecialArgs = { inherit inputs; };
 
       };
       "nyctef@logikoma" = home-manager.lib.homeManagerConfiguration {
