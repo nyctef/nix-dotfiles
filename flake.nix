@@ -32,7 +32,7 @@
 	modules = [
 	    ./users/generic.nix
 	    {
-		genHome.username = "nyctef";
+		genHome.username = "nixos";
 	    }
 	];
 
