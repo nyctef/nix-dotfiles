@@ -11,6 +11,9 @@
     nixos-wsl.inputs.nixpkgs.follows = "nixpkgs";
 
     nixCats.url = "github:BirdeeHub/nixCats-nvim";
+    
+    agenix.url = "github:ryantm/agenix";
+    agenix.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
@@ -86,6 +89,8 @@
               networking.hostName = "tachikoma";
             }
           ];
+
+          specialArgs = { inherit inputs; };
         };
         logikoma = lib.nixosSystem {
           inherit system;
@@ -97,6 +102,8 @@
               networking.hostName = "logikoma";
             }
           ];
+
+          specialArgs = { inherit inputs; };
         };
       };
 

@@ -63,6 +63,7 @@ in
       gh
       git-crypt
       gnupg
+      inputs.agenix.packages.${system}.default
 
       pstree
       wget

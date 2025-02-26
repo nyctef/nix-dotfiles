@@ -6,6 +6,7 @@
 # https://github.com/nix-community/NixOS-WSL
 
 {
+  inputs,
   config,
   lib,
   pkgs,
@@ -13,11 +14,9 @@
 }:
 
 {
-  # now managed in flake.nix
-  # imports = [
-  #   # include NixOS-WSL modules
-  #   <nixos-wsl/modules>
-  # ];
+   imports = [
+     inputs.agenix.nixosModules.default
+   ];
 
   # wsl.enable = true;
   # wsl.defaultUser = "nixos";
