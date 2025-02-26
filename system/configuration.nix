@@ -15,7 +15,7 @@
 
 {
    imports = [
-     inputs.agenix.nixosModules.default
+     # inputs.agenix.nixosModules.default
    ];
 
   # wsl.enable = true;

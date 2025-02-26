@@ -16,6 +16,8 @@ in
     ./jujutsu.nix
     ./tmux.nix
     ./neovim
+
+    inputs.agenix.homeManagerModules.default
   ];
 
   options.genHome = {
@@ -100,8 +102,11 @@ in
     #
     #  /etc/profiles/per-user/nixos/etc/profile.d/hm-session-vars.sh
     #
+    age.secrets.hello.file = ../secrets/hello.age;
     home.sessionVariables = {
-      # EDITOR = "nvim";
+      hello = ''
+        $(${pkgs.coreutils}/bin/cat ${config.age.secrets.hello.path})
+      '';
     };
 
     # Let Home Manager install and manage itself.
