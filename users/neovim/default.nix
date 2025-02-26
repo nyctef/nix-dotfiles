@@ -46,9 +46,9 @@ in
         {
           lspsAndRuntimeDeps = {
             general = [ ];
-	    csharp = with pkgs; [
-	      roslyn-ls
-	    ];
+            csharp = with pkgs; [
+              roslyn-ls
+            ];
           };
           startupPlugins = {
             general = {
@@ -56,9 +56,9 @@ in
                 telescope-nvim
               ];
             };
-	    csharp = with pkgs.vimPlugins; [
-	      roslyn-nvim
-	    ];
+            csharp = with pkgs.vimPlugins; [
+              roslyn-nvim
+            ];
             # themer = with pkgs; [
             #   # you can even make subcategories based on categories and settings sets!
             #   (builtins.getAttr packageDef.categories.colorscheme {
@@ -136,7 +136,7 @@ in
             # (and other information to pass to lua)
             categories = {
               general = true;
-	      csharp = true;
+              csharp = true;
               test = true;
               example = {
                 youCan = "add more than just booleans";
