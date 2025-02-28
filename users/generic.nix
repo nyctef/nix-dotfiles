@@ -104,9 +104,15 @@ in
     #
     age.secrets.hello.file = ../secrets/hello.age;
     home.sessionVariables = {
-      hello = ''
-        $(${pkgs.coreutils}/bin/cat ${config.age.secrets.hello.path})
-      '';
+      # avoid pasting agenix-encrypted secrets directly into a store file
+      # the outer $(...) gets put directly into the fish init script, then
+      # interpreted while fish is loading.
+      # the inner ${...} gets interpolated here while nix is building.
+      # so the resulting fish script ends up looking something like
+      #   set -gx hello (/.../bin/cat /.../agenix/hello)
+      # where the agenix/hello file will have been decrypted at boot time
+      # using the machine's ssh host keys.
+      hello = ''$(${pkgs.coreutils}/bin/cat ${config.age.secrets.hello.path})'';
     };
 
     # Let Home Manager install and manage itself.
