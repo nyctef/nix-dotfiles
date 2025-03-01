@@ -52,6 +52,11 @@
     };
   };
 
+  # allow running unpatched binaries that assume a link loader is at eg
+  # /lib64/ld-linux-x86-64.so.2
+  # https://github.com/nix-community/nix-ld
+  programs.nix-ld.enable = true;
+
   # This value determines the NixOS release from which the default
   # settings for stateful data, like file locations and database versions
   # on your system were taken. It's perfectly fine and recommended to leave
