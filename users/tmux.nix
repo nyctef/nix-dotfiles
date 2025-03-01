@@ -21,7 +21,9 @@
     set-window-option -g pane-base-index 1
     set-option -g renumber-windows on
 
-
+    # dim inactive panes
+    setw -g window-active-style fg=terminal,bg=terminal
+    setw -g window-style fg=colour245,bg=colour236
     '';
   };
 }
