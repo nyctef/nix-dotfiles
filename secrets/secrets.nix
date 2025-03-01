@@ -13,4 +13,5 @@ let
 in
 {
   "hello.age".publicKeys = all;
+  "rg-packaging-read.age".publicKeys = all;
 }

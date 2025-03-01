@@ -16,6 +16,7 @@ in
     ./jujutsu.nix
     ./tmux.nix
     ./neovim
+    ./dotnet.nix
 
     inputs.agenix.homeManagerModules.default
   ];
@@ -113,6 +114,7 @@ in
       # where the agenix/hello file will have been decrypted at boot time
       # using the machine's ssh host keys.
       hello = ''$(${pkgs.coreutils}/bin/cat ${config.age.secrets.hello.path})'';
+
     };
 
     # Let Home Manager install and manage itself.

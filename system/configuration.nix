@@ -14,9 +14,9 @@
 }:
 
 {
-   imports = [
-     # inputs.agenix.nixosModules.default
-   ];
+  imports = [
+    # inputs.agenix.nixosModules.default
+  ];
 
   # wsl.enable = true;
   # wsl.defaultUser = "nixos";

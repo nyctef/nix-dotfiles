@@ -11,7 +11,7 @@
     nixos-wsl.inputs.nixpkgs.follows = "nixpkgs";
 
     nixCats.url = "github:BirdeeHub/nixCats-nvim";
-    
+
     agenix.url = "github:ryantm/agenix";
     agenix.inputs.nixpkgs.follows = "nixpkgs";
   };
