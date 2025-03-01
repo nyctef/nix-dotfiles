@@ -9,9 +9,8 @@
 set ignorecase
 set smartcase
 
-" use monokai plugin for colors
 syntax on
-" lua require('monokai').setup {}
+colorscheme onehalfdark
 
 " set space for the gutter even if nothing's using it
 set signcolumn=yes
