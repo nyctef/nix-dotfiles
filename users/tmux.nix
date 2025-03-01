@@ -9,6 +9,7 @@
     # https://superuser.com/a/1809494
     escapeTime = 50;
     historyLimit = 50000;
+    mouse = true;
     terminal = "tmux-256color";
     extraConfig = ''
     # make splits open in the current folder
