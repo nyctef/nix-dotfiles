@@ -44,9 +44,14 @@ in
           ...
         }@packageDef:
         {
-          lspsAndRuntimeDeps = {
-            general = [ ];
-            csharp = with pkgs; [
+          lspsAndRuntimeDeps = with pkgs; {
+            general = {
+              telescope = [
+                ripgrep
+                fzf
+              ];
+            };
+            csharp = [
               roslyn-ls
             ];
           };
