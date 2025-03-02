@@ -64,6 +64,15 @@ in
               telescope = [
                 telescope-nvim
               ];
+
+              ts = [
+                (nvim-treesitter.withPlugins (
+                  plugins: with plugins; [
+                    c_sharp
+                  ]
+                ))
+
+              ];
             };
             csharp = with pkgs.vimPlugins; [
               roslyn-nvim
