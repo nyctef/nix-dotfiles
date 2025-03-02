@@ -51,8 +51,12 @@ in
             ];
           };
           startupPlugins = {
-            general = {
-              telescope = with pkgs.vimPlugins; [
+            general = with pkgs.vimPlugins; {
+              tpope = [
+                vim-surround
+              ];
+
+              telescope = [
                 telescope-nvim
               ];
             };
