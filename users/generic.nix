@@ -127,6 +127,8 @@ in
     programs.fish.shellInit = "
       set -U fish_features qmark-noglob
     ";
+    xdg.configFile."fish/functions/fish_jj_prompt.fish".source = ./fish_jj_prompt.fish;
+    xdg.configFile."fish/functions/fish_vcs_prompt.fish".source = ./fish_vcs_prompt.fish;
 
     # git stuff
     programs.git = {
