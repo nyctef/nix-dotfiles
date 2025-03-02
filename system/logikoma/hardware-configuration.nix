@@ -43,6 +43,24 @@
     ];
   };
 
+  fileSystems."/run/media/nyctef/Stuff2" = {
+    device = "/dev/disk/by-uuid/2C6E21FD6E21C106";
+    fsType = "ntfs3";
+    options = [ "nofail" "users" ];
+  };
+
+  fileSystems."/run/media/nyctef/old1" = {
+    device = "/dev/disk/by-uuid/8AB464CFB464BEF7";
+    fsType = "ntfs3";
+    options = [ "nofail" "users" ];
+  };
+
+  fileSystems."/run/media/nyctef/old2" = {
+    device = "/dev/disk/by-uuid/F45A10405A100252";
+    fsType = "ntfs3";
+    options = [ "nofail" "users" ];
+  };
+
   swapDevices = [ ];
 
   # Enables DHCP on each ethernet and wireless interface. In case of scripted networking
