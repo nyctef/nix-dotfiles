@@ -72,11 +72,8 @@
 
           modules = [
             ./system/configuration.nix
-            nixos-wsl.nixosModules.default
+            ./system/wsl.nix
             {
-              # system.stateVersion = "unstable";
-              wsl.enable = true;
-
               virtualisation.docker.enable = true;
               virtualisation.docker.daemon.settings = {
                 hosts = [
