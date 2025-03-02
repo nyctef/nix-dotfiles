@@ -36,7 +36,7 @@ with lib;
 
     '';
     # https://learn.microsoft.com/en-us/nuget/consume-packages/configuring-nuget-behavior#on-maclinux-the-user-level-config-file-location-varies-by-tooling
-    home.activation.symlinkNugetConfig = hm.dag.entryAfter ["writeBoundary"] ''
+    home.activation.symlinkNugetConfig = hm.dag.entryAfter [ "writeBoundary" ] ''
       run ln -sf $VERBOSE_ARG ~/.config/NuGet/ ~/.nuget/NuGet
     '';
 

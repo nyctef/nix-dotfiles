@@ -12,19 +12,19 @@
     mouse = true;
     terminal = "tmux-256color";
     extraConfig = ''
-    # make splits open in the current folder
-    bind '"' split-window -v -c "#{pane_current_path}"
-    bind % split-window -h -c "#{pane_current_path}"
+      # make splits open in the current folder
+      bind '"' split-window -v -c "#{pane_current_path}"
+      bind % split-window -h -c "#{pane_current_path}"
 
-    # Start windows and panes at 1, not 0
-    set -g base-index 1
-    set -g pane-base-index 1
-    set-window-option -g pane-base-index 1
-    set-option -g renumber-windows on
+      # Start windows and panes at 1, not 0
+      set -g base-index 1
+      set -g pane-base-index 1
+      set-window-option -g pane-base-index 1
+      set-option -g renumber-windows on
 
-    # dim inactive panes
-    setw -g window-active-style fg=terminal,bg=terminal
-    setw -g window-style fg=colour245,bg=colour236
+      # dim inactive panes
+      setw -g window-active-style fg=terminal,bg=terminal
+      setw -g window-style fg=colour245,bg=colour236
     '';
   };
 }
