@@ -71,7 +71,10 @@ in
                     c_sharp
                   ]
                 ))
+              ];
 
+              misc = [
+                vim-textobj-entire # ae and ie text objects for the whole buffer
               ];
             };
             csharp = with pkgs.vimPlugins; [
@@ -174,5 +177,4 @@ in
       EDITOR = "nvim";
     };
   };
-
 }
