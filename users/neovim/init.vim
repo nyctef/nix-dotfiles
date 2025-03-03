@@ -46,3 +46,9 @@ language en_US
 " allow opening .exrc or .nvimrc files in the current directory (with a prompt)
 set exrc
 
+" add a marker to wrapped text
+set showbreak=↳
+" wrapped text gets indented
+set breakindent
+
+
