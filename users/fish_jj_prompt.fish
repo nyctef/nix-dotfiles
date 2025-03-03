@@ -38,6 +38,6 @@ function fish_jj_prompt --description 'Write out the jj prompt'
             )
     '))
 
-    printf '(%s %s)' $branches $state
+    printf ' (%s %s)' $branches $state
 
 end
