@@ -59,6 +59,7 @@ in
             general = with pkgs.vimPlugins; {
               tpope = [
                 vim-surround
+                vim-sleuth
               ];
 
               telescope = [
