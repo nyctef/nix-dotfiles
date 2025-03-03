@@ -18,21 +18,18 @@ function fish_jj_prompt --description 'Write out the jj prompt'
     set state (string trim (jj log --no-graph --no-pager --ignore-working-copy --color always -r @ -T '
             separate(
                 " ",
-                coalesce(
-                    surround(
-                        "\"",
-                        "\"",
-                        if(
-                            description.first_line().substr(0, 24).starts_with(description.first_line()),
-                            description.first_line().substr(0, 24),
-                            description.first_line().substr(0, 23) ++ "…"
-                        )
-                    ),
-                    "nodesc"
+                surround(
+                    "\"",
+                    "\"",
+                    if(
+                        description.first_line().substr(0, 24).starts_with(description.first_line()),
+                        description.first_line().substr(0, 24),
+                        description.first_line().substr(0, 23) ++ "…"
+                    )
                 ),
                 change_id.shortest(),
                 if(conflict, "conflict"),
-                if(empty, "empty"),
+                if(!empty, "changed"),
                 if(divergent, "divergent"),
                 if(hidden, "hidden"),
             )
