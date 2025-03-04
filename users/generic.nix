@@ -119,6 +119,13 @@ in
       hello = ''$(${pkgs.coreutils}/bin/cat ${config.age.secrets.hello.path})'';
     };
 
+    home.sessionPath = [
+      # add apply-users and apply-system to the PATH
+      # note we reference `self` here instead of `./bin` since if we do
+      # the latter, then the bin folder gets copied by itself into the store
+      "${inputs.self}/bin"
+    ];
+
     home.file.".ssh/hm_authorized_keys" = {
       text = ''
         ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCekId/sXLRgaXZKcDzBeQyaJftBNKCXh5Hwn0KaLgbxUtCc+uJRKu9lt6eg4NegJJXc6JlJxrArd8lGXcjni4eqVzQRbRA1z01Vx1IlDJMZpoERjoWytNQ/J2MifQXlqR51kpPyU/H8kNphZ9yBAeuiZxcTySZIvijT7WELD2Raw+YMtNQKVyn93yCOuAMF9o/IdbtoesJZHcrFW+cIK3m0leNAiYpS2qZ9xo79F2CP3rn142ok5s6ts0ATtuMFR/EpeqRf9WFZIVONiewg7avi3BiJabH33djJ4RrBxXAevzevFs9UZtJqjY4XJczbWSV5nwQuPP4sh8vgkjD3PVH
