@@ -25,6 +25,9 @@
       # dim inactive panes
       setw -g window-active-style fg=terminal,bg=terminal
       setw -g window-style fg=colour245,bg=colour236
+
+      # make sure nvim can receive focus events for automatically refreshing file contents etc
+      set -g focus-events on
     '';
   };
 }
