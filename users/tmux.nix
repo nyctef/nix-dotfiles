@@ -19,8 +19,8 @@
       # Start windows and panes at 1, not 0
       set -g base-index 1
       set -g pane-base-index 1
-      set-window-option -g pane-base-index 1
-      set-option -g renumber-windows on
+      setw -g pane-base-index 1
+      set -g renumber-windows on
 
       # dim inactive panes
       setw -g window-active-style fg=terminal,bg=terminal
