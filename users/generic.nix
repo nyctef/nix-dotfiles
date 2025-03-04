@@ -141,8 +141,10 @@ in
     programs.fish.shellInit = "
       set -U fish_features qmark-noglob
     ";
+    # TODO: move files into a subdirectory with .recursive or similar
     xdg.configFile."fish/functions/fish_jj_prompt.fish".source = ./fish_jj_prompt.fish;
     xdg.configFile."fish/functions/fish_vcs_prompt.fish".source = ./fish_vcs_prompt.fish;
+    xdg.configFile."fish/functions/prompt_login.fish".source = ./prompt_login.fish;
 
     # git stuff
     programs.git = {
