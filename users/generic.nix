@@ -119,9 +119,19 @@ in
 
     };
 
-    home.file.".ssh/authorized_keys" = ''
-      ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCekId/sXLRgaXZKcDzBeQyaJftBNKCXh5Hwn0KaLgbxUtCc+uJRKu9lt6eg4NegJJXc6JlJxrArd8lGXcjni4eqVzQRbRA1z01Vx1IlDJMZpoERjoWytNQ/J2MifQXlqR51kpPyU/H8kNphZ9yBAeuiZxcTySZIvijT7WELD2Raw+YMtNQKVyn93yCOuAMF9o/IdbtoesJZHcrFW+cIK3m0leNAiYpS2qZ9xo79F2CP3rn142ok5s6ts0ATtuMFR/EpeqRf9WFZIVONiewg7avi3BiJabH33djJ4RrBxXAevzevFs9UZtJqjY4XJczbWSV5nwQuPP4sh8vgkjD3PVH
-    '';
+    home.file.".ssh/hm_authorized_keys" = {
+      text = ''
+        ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCekId/sXLRgaXZKcDzBeQyaJftBNKCXh5Hwn0KaLgbxUtCc+uJRKu9lt6eg4NegJJXc6JlJxrArd8lGXcjni4eqVzQRbRA1z01Vx1IlDJMZpoERjoWytNQ/J2MifQXlqR51kpPyU/H8kNphZ9yBAeuiZxcTySZIvijT7WELD2Raw+YMtNQKVyn93yCOuAMF9o/IdbtoesJZHcrFW+cIK3m0leNAiYpS2qZ9xo79F2CP3rn142ok5s6ts0ATtuMFR/EpeqRf9WFZIVONiewg7avi3BiJabH33djJ4RrBxXAevzevFs9UZtJqjY4XJczbWSV5nwQuPP4sh8vgkjD3PVH
+      '';
+      # https://github.com/nix-community/home-manager/issues/3090#issuecomment-2010891733
+      # sshd prevents logins if the permissions for authorized_keys are too open
+      # and if we use a home-manager file directly then it'll just be a symlink into the nix store
+      onChange = ''
+        rm -f ~/.ssh/authorized_keys
+        cp ~/.ssh/hm_authorized_keys ~/.ssh/authorized_keys
+        chmod 700 ~/.ssh/authorized_keys
+      '';
+    };
 
     # Let Home Manager install and manage itself.
     programs.home-manager.enable = true;
