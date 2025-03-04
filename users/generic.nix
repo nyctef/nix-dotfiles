@@ -16,6 +16,7 @@ in
     ./jujutsu.nix
     ./tmux.nix
     ./neovim
+    ./fish
     ./dotnet.nix
 
     inputs.agenix.homeManagerModules.default
@@ -116,7 +117,6 @@ in
       # where the agenix/hello file will have been decrypted at boot time
       # using the machine's ssh host keys.
       hello = ''$(${pkgs.coreutils}/bin/cat ${config.age.secrets.hello.path})'';
-
     };
 
     home.file.".ssh/hm_authorized_keys" = {
@@ -136,16 +136,6 @@ in
     # Let Home Manager install and manage itself.
     programs.home-manager.enable = true;
 
-    # install fish, and tell HM to manage it (set session variables etc)
-    programs.fish.enable = true;
-    programs.fish.shellInit = "
-      set -U fish_features qmark-noglob
-    ";
-    # TODO: move files into a subdirectory with .recursive or similar
-    xdg.configFile."fish/functions/fish_jj_prompt.fish".source = ./fish_jj_prompt.fish;
-    xdg.configFile."fish/functions/fish_vcs_prompt.fish".source = ./fish_vcs_prompt.fish;
-    xdg.configFile."fish/functions/prompt_login.fish".source = ./prompt_login.fish;
-
     # git stuff
     programs.git = {
       enable = true;
@@ -154,8 +144,6 @@ in
         commit.verbose = true;
 
       };
-
     };
-
   };
 }
