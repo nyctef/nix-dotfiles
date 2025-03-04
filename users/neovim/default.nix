@@ -48,7 +48,6 @@ in
             general = {
               telescope = [
                 ripgrep
-                fzf
               ];
             };
             csharp = [
@@ -64,6 +63,7 @@ in
 
               telescope = [
                 telescope-nvim
+                telescope-fzf-native-nvim
               ];
 
               ts = [
