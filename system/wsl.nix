@@ -14,7 +14,11 @@
   ];
 
   config = {
-    wsl.enable = true;
+    wsl = {
+      enable = true;
+      # don't include binaries from windows PATH
+      interop.includePath = false;
+    };
 
     environment.systemPackages = with pkgs; [
       wslu
