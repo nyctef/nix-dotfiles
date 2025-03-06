@@ -136,7 +136,7 @@ in
       onChange = ''
         rm -f ~/.ssh/authorized_keys
         cp ~/.ssh/hm_authorized_keys ~/.ssh/authorized_keys
-        chmod 700 ~/.ssh/authorized_keys
+        chmod 600 ~/.ssh/authorized_keys
       '';
     };
 
