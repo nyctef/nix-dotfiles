@@ -1,4 +1,4 @@
-" lua require('keybinds')
+lua require('keybinds')
 
 " lua require('plugins')
 
