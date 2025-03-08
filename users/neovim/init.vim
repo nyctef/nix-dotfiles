@@ -26,7 +26,7 @@ set nohlsearch
 " picking an option
 " menuone: open the completion menu even when there's only one result
 set completeopt=longest,menuone
-" set completeopt+=fuzzy " requires nightly
+set completeopt+=fuzzy " requires nightly
 set wildmode=list:longest
 set wildmenu
 set wildoptions=pum
