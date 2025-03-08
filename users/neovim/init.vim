@@ -21,10 +21,12 @@ set number
 " don't keep highlighting search results once the search is done
 set nohlsearch
 
+" fuzzy: allow fuzzy matching on completion results
 " longest: only complete to the longest common subsequence instead of greedily
 " picking an option
 " menuone: open the completion menu even when there's only one result
 set completeopt=longest,menuone
+" set completeopt+=fuzzy " requires nightly
 set wildmode=list:longest
 set wildmenu
 set wildoptions=pum
