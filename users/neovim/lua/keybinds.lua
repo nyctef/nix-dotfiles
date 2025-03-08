@@ -12,5 +12,8 @@ vim.api.nvim_create_autocmd('LspAttach', {
   end,
 })
 
+-- make ESC work as expected in terminal mode
+vim.keymap.set('t', '<ESC>', '<C-\\><C-n>');
+
 
 -- see also: after/plugin/telescope.lua
