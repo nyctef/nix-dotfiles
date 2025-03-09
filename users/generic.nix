@@ -9,6 +9,24 @@
 with lib;
 let
   cfg = config.genHome;
+
+  waitcat = pkgs.writeShellScriptBin "waitcat" ''
+    #!/bin/sh
+
+    if [ -z "$1" ]; then
+      echo "Usage: $0 <filename> <...cat args>" >&2
+      exit 1
+    fi
+    filename="$1"
+    shift # strip off $1 so remaining args are left
+
+    until [ -f "$filename" ]
+    do
+      sleep 1
+    done
+
+    cat "$filename" "$@"
+    '';
 in
 {
 
@@ -115,10 +133,12 @@ in
       # interpreted while fish is loading.
       # the inner ${...} gets interpolated here while nix is building.
       # so the resulting fish script ends up looking something like
-      #   set -gx hello (/.../bin/cat /.../agenix/hello)
-      # where the agenix/hello file will have been decrypted at boot time
-      # using the machine's ssh host keys.
-      hello = ''$(${pkgs.coreutils}/bin/cat ${config.age.secrets.hello.path})'';
+      #   set -gx hello (/.../waitcat/bin/waitcat /.../agenix/hello)
+      # where the agenix/hello file will have been decrypted at startup time
+      # using the machine's ssh host keys. When using home-manager the shell
+      # might try to start before the agenix service has fully loaded, so
+      # we use waitcat instead of cat to work around the problem.
+      hello = ''$(${waitcat}/bin/waitcat ${config.age.secrets.hello.path})'';
     };
 
     home.sessionPath = [
