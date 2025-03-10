@@ -71,6 +71,7 @@ in
 
       pstree
       wget
+      tree
 
       maven
     ];
