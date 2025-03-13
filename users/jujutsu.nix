@@ -47,6 +47,10 @@
     [aliases]
     tug = ["bookmark", "move", "--from", "heads(::@- & bookmarks())", "--to", "@-"]
 
+    [git]
+    # https://github.com/jj-vcs/jj/blob/main/docs/config.md#set-of-private-commits
+    private-commits = "description(glob:'private:*')"
+
 
   '';
 
