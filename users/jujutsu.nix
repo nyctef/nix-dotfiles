@@ -50,7 +50,8 @@
     [git]
     # https://github.com/jj-vcs/jj/blob/main/docs/config.md#set-of-private-commits
     private-commits = "description(glob:'private:*')"
-
+    # allow pushing new bookmarks without having to explicitly set --allow-new
+    push-new-bookmarks = true
 
   '';
 
