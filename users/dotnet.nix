@@ -5,6 +5,9 @@
   pkgs,
   ...
 }:
+let
+  waitcat = import ../utils/waitcat.nix { inherit pkgs; };
+in
 
 with lib;
 {
@@ -20,7 +23,7 @@ with lib;
     home.sessionVariables = {
 
       # ideally we'd use `red-gate-vsts-main-v3` to be consistent here, but fish doesn't like having dashes in variable names
-      NuGetPackageSourceCredentials_red_gate_vsts_main_v3 = ''$(${pkgs.coreutils}/bin/cat ${config.age.secrets.rgPackagingRead.path})'';
+      NuGetPackageSourceCredentials_red_gate_vsts_main_v3 = ''$(${waitcat}/bin/waitcat ${config.age.secrets.rgPackagingRead.path})'';
     };
 
     xdg.configFile."NuGet/config/rg.config".text = ''
