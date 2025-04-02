@@ -39,6 +39,7 @@
       diff.git(),
     )
     """
+    log = "builtin_log_oneline"
 
     [template-aliases]
     'format_timestamp(timestamp)' = 'timestamp.ago()'
