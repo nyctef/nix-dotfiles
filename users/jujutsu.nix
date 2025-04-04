@@ -23,6 +23,7 @@
     [ui]
     merge-editor = "p4merge"
     default-command = ["st", "--no-pager"]
+    conflict-marker-style = "git"
 
     [merge-tools]
     p4merge.merge-args = ["$base", "$left", "$right", "$output"]
