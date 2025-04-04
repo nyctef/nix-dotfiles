@@ -1,3 +1,23 @@
+local telescope = require('telescope')
+telescope.setup {
+    defaults = {
+	file_ignore_patterns = {
+	    "^experiments/",
+	    -- % in lua patterns is required to escape "magic" characters
+	    -- https://www.lua.org/manual/5.1/manual.html#5.4.1
+	    "^record%-replay%-test%-traces/",
+	    "%.git/"
+	}
+    },
+
+    pickers = {
+	find_files = {
+	    hidden = true
+	}
+    }
+}
+
+
 local builtin = require('telescope.builtin')
 vim.keymap.set('n', '<leader>p', builtin.find_files, {})
 vim.keymap.set('n', '<leader>ol', builtin.oldfiles, {})
