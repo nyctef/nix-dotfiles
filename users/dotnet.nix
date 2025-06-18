@@ -14,7 +14,7 @@ with lib;
   config = {
 
     home.packages = with pkgs; [
-      dotnet-sdk_9
+      dotnetCorePackages.sdk_9_0-bin
 
     ];
 
