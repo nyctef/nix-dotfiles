@@ -2,7 +2,7 @@
 
 initial config based on [video tutorials by Wil T][1]
 
-### setup
+### setup (on nixos)
 
 on a fresh machine: (not super well tested)
 
@@ -19,6 +19,35 @@ nix-shell '<home-manager>' -A install
 ```
 
 ```bash
+home-manager switch --flake .
+```
+
+### setup (codespace)
+
+- Assumes running as root inside a Debian-ish container
+- Creates a multi-user nix install even though we're just running as root, since the single-user install script refuses to run in this case
+
+```bash
+# work around https://github.com/NixOS/nix/issues/6680
+apt-get update
+apt install -y acl
+setfacl -k /tmp
+
+# set hostname to what the flake expects
+hostname codespace
+
+# install nix
+sh <(curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install) --daemon
+
+# install home-manager
+nix-channel --add https://github.com/nix-community/home-manager/archive/master.tar.gz home-manager
+nix-channel --update
+nix-shell '<home-manager>' -A install
+
+# install this repo
+apt-get install -y gh
+gh repo clone nyctef/nix-dotfiles ~/.dotfiles
+cd ~/.dotfiles
 home-manager switch --flake .
 ```
 
