@@ -66,6 +66,22 @@
 
           extraSpecialArgs = { inherit inputs; };
         };
+        "root@codespace" = home-manager.lib.homeManagerConfiguration {
+          inherit pkgs;
+
+          modules = [
+            ./users/generic.nix
+            {
+              genHome.username = "root";
+            }
+	    {
+                # TODO: could probably do this for username as well instead of a custom option?
+		home.homeDirectory = lib.mkForce "/root";
+	    }
+          ];
+
+          extraSpecialArgs = { inherit inputs; };
+        };
       };
 
       nixosConfigurations = {
