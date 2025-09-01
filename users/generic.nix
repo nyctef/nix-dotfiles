@@ -71,6 +71,8 @@ in
       gnupg
       inputs.agenix.packages.${system}.default
 
+      inputs.ff14-utils.packages.${system}.default
+
       pstree
       wget
       tree

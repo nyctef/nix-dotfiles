@@ -16,6 +16,9 @@
     agenix.inputs.nixpkgs.follows = "nixpkgs";
 
     neovim-nightly-overlay.url = "github:nix-community/neovim-nightly-overlay";
+
+    ff14-utils.url = "github:nyctef/ff14-utils";
+    ff14-utils.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
