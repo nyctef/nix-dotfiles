@@ -51,6 +51,13 @@ cd ~/.dotfiles
 home-manager --extra-experimental-features 'nix-command flakes' switch --flake .#root@codespace
 ```
 
+to allow `gh codespace ssh`:
+
+```bash
+sudo apt install openssh-server
+
+# check that the appropriate public key is in ~/.ssh/authorized_keys
+```
 
 
 [1]: https://www.youtube.com/watch?v=Dy3KHMuDNS8
