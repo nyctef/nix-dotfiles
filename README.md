@@ -36,10 +36,10 @@ setfacl -k /tmp
 # set hostname to what the flake expects
 hostname codespace
 
-# install nix
+# install nix (accept prompts)
 sh <(curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install) --daemon
 
-# install home-manager
+# install home-manager (may require a new terminal)
 nix-channel --add https://github.com/nix-community/home-manager/archive/master.tar.gz home-manager
 nix-channel --update
 nix-shell '<home-manager>' -A install
@@ -48,7 +48,7 @@ nix-shell '<home-manager>' -A install
 apt-get install -y gh
 gh repo clone nyctef/nix-dotfiles ~/.dotfiles
 cd ~/.dotfiles
-home-manager switch --flake .
+home-manager --extra-experimental-features 'nix-command flakes' switch --flake .#root@codespace
 ```
 
 
