@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+
+# Watch a PR and notify when it goes green
+
+# Let user select a PR with fzf
+PR_NUMBER=$(gh pr list --json number,title,author,headRefName --jq '.[] | "#\(.number) \(.title) (@\(.author.login)) [\(.headRefName)]"' | \
+  fzf --prompt="Select PR to watch: " --height=40% --reverse | \
+  sed 's/^#\([0-9]*\).*/\1/')
+
+if [ -z "$PR_NUMBER" ]; then
+  echo "No PR selected"
+  exit 1
+fi
+
+echo "Monitoring PR #${PR_NUMBER} status..."
+
+while true; do
+  PR_DATA=$(gh pr view ${PR_NUMBER}  --json statusCheckRollup,state 2>/dev/null)
+  STATUS=$(echo "$PR_DATA" | jq -r '[.statusCheckRollup[] | select(.conclusion != null and .conclusion != "") | .conclusion] | unique | .[]')
+  PENDING=$(echo "$PR_DATA" | jq '[.statusCheckRollup[] | select(.conclusion == null or .conclusion == "")] | length')
+  STATE=$(echo "$PR_DATA" | jq -r '.state')
+  
+  # Check if there are any pending checks
+  if [ "$PENDING" != "0" ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - PR has ${PENDING} pending checks, waiting..."
+  elif echo "$STATUS" | grep -qi "FAILURE\|CANCELLED\|TIMED_OUT"; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - PR has failing checks, waiting..."
+  elif [ "$STATE" = "MERGED" ] || [ "$STATE" = "CLOSED" ]; then
+    echo -e "PR is ${STATE}\a"
+    exit 0
+  else
+    echo -e "✅ PR #${PR_NUMBER} is GREEN!\a"
+    exit 0
+  fi
+  
+  sleep 60
+done
