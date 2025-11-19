@@ -9,6 +9,8 @@
 with lib;
 let
   cfg = config.genHome;
+  
+  system = pkgs.stdenv.hostPlatform.system;
 
   waitcat = import ../utils/waitcat.nix { inherit pkgs; };
 in
