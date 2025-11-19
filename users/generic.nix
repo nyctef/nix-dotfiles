@@ -66,22 +66,24 @@ in
       #   echo "Hello, ${config.home.username}!"
       # '')
 
+      # git and credentials
       gh
       git-crypt
       gnupg
       inputs.agenix.packages.${system}.default
 
+      # ff14-utils
       inputs.ff14-utils.packages.${system}.default
 
+      # utils
       pstree
       wget
       tree
-
-      maven
-      dig
-
       bc
 
+      # dev tools
+      maven
+      dig
       github-copilot-cli
     ];
 
