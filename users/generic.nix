@@ -13,6 +13,7 @@ let
   system = pkgs.stdenv.hostPlatform.system;
 
   waitcat = import ../utils/waitcat.nix { inherit pkgs; };
+  watch-pr = import ../utils/watch-pr.nix { inherit pkgs; };
 in
 {
 
@@ -87,6 +88,7 @@ in
       maven
       dig
       github-copilot-cli
+      watch-pr
     ];
 
     # Home Manager is pretty good at managing dotfiles. The primary way to manage

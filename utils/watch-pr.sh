@@ -15,21 +15,26 @@ fi
 echo "Monitoring PR #${PR_NUMBER} status..."
 
 while true; do
-  PR_DATA=$(gh pr view ${PR_NUMBER}  --json statusCheckRollup,state 2>/dev/null)
+  PR_DATA=$(gh pr view "${PR_NUMBER}"  --json statusCheckRollup,state 2>/dev/null)
   STATUS=$(echo "$PR_DATA" | jq -r '[.statusCheckRollup[] | select(.conclusion != null and .conclusion != "") | .conclusion] | unique | .[]')
   PENDING=$(echo "$PR_DATA" | jq '[.statusCheckRollup[] | select(.conclusion == null or .conclusion == "")] | length')
+  SUCCESS_COUNT=$(echo "$PR_DATA" | jq '[.statusCheckRollup[] | select(.conclusion == "SUCCESS")] | length')
+  TOTAL_COUNT=$(echo "$PR_DATA" | jq '[.statusCheckRollup[]] | length')
   STATE=$(echo "$PR_DATA" | jq -r '.state')
-  
-  # Check if there are any pending checks
+
   if [ "$PENDING" != "0" ]; then
     echo "$(date '+%Y-%m-%d %H:%M:%S') - PR has ${PENDING} pending checks, waiting..."
-  elif echo "$STATUS" | grep -qi "FAILURE\|CANCELLED\|TIMED_OUT"; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - PR has failing checks, waiting..."
   elif [ "$STATE" = "MERGED" ] || [ "$STATE" = "CLOSED" ]; then
     echo -e "PR is ${STATE}\a"
     exit 0
-  else
+  elif echo "$STATUS" | grep -qi "FAILURE\|CANCELLED\|TIMED_OUT"; then
+    echo -e "❌ PR #${PR_NUMBER} has failing checks\a"
+    exit 1
+  elif [ "$TOTAL_COUNT" -gt "0" ] && [ "$SUCCESS_COUNT" = "$TOTAL_COUNT" ]; then
     echo -e "✅ PR #${PR_NUMBER} is GREEN!\a"
+    exit 0
+  else
+    echo -e "⚠️  PR #${PR_NUMBER} has no checks or unclear status (${SUCCESS_COUNT}/${TOTAL_COUNT} successful)\a"
     exit 0
   fi
   
