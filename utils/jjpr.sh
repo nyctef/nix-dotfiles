@@ -3,13 +3,17 @@
 set -euo pipefail
 
 echo "Fetching latest git changes..."
-jj git fetch
+# run fetch in the background and take a note of its PID
+jj git fetch &
+fetch_pid=$!
 
 branch=$(gh pr list | fzf | cut -f 3)
 if [[ -z $branch ]]; then
     echo "No branch selected. Exiting"
     exit 1
 fi
+
+wait $fetch_pid
 
 # Check if local branch exists
 local_exists=$(jj bookmark list --no-pager "$branch" 2>/dev/null | grep -c "^$branch:" || true)
