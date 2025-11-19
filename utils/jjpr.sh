@@ -2,9 +2,13 @@
 
 set -euo pipefail
 
+echo "Fetching latest git changes..."
+jj git fetch
+
 branch=$(gh pr list | fzf | cut -f 3)
 if [[ -z $branch ]]; then
-    return
+    echo "No branch selected. Exiting"
+    exit 1
 fi
 
 # Check if local branch exists
