@@ -28,6 +28,9 @@
     "flakes"
   ];
 
+  # Allow unfree packages
+  nixpkgs.config.allowUnfree = true;
+
   # set fish as the default shell for users
   users.defaultUserShell = pkgs.fish;
   # we have to install it here even though it's also installed in home-manager,
