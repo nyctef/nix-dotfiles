@@ -1,8 +1,12 @@
 { config, pkgs, ... }:
 
+let
+  jjpr = import ../utils/jjpr.nix { inherit pkgs; };
+in
 {
   home.packages = with pkgs; [
     jujutsu
+    jjpr
   ];
 
   # TODO: maybe just extract this into a separate toml file?
