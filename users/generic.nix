@@ -160,7 +160,7 @@ in
     # git stuff
     programs.git = {
       enable = true;
-      extraConfig = {
+      settings = {
         # include diff in commit message editor
         commit.verbose = true;
 
