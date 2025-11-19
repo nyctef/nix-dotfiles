@@ -1,9 +1,20 @@
 #!/usr/bin/env bash
 
 # Watch a PR and notify when it goes green
+# Usage: watch-pr.sh [owner] [repo]
+
+OWNER="${1:-}"
+REPO="${2:-}"
+
+# Build repo flag for gh commands
+if [ -n "$OWNER" ] && [ -n "$REPO" ]; then
+  REPO_FLAG=(--repo "${OWNER}/${REPO}")
+else
+  REPO_FLAG=()
+fi
 
 # Let user select a PR with fzf
-PR_NUMBER=$(gh pr list --json number,title,author,headRefName --jq '.[] | "#\(.number) \(.title) (@\(.author.login)) [\(.headRefName)]"' | \
+PR_NUMBER=$(gh pr list "${REPO_FLAG[@]}" --json number,title,author,headRefName --jq '.[] | "#\(.number) \(.title) (@\(.author.login)) [\(.headRefName)]"' | \
   fzf --prompt="Select PR to watch: " --height=40% --reverse | \
   sed 's/^#\([0-9]*\).*/\1/')
 
@@ -15,7 +26,7 @@ fi
 echo "Monitoring PR #${PR_NUMBER} status..."
 
 while true; do
-  PR_DATA=$(gh pr view "${PR_NUMBER}"  --json statusCheckRollup,state 2>/dev/null)
+  PR_DATA=$(gh pr view "${PR_NUMBER}" "${REPO_FLAG[@]}" --json statusCheckRollup,state 2>/dev/null)
   STATUS=$(echo "$PR_DATA" | jq -r '[.statusCheckRollup[] | select(.conclusion != null and .conclusion != "") | .conclusion] | unique | .[]')
   PENDING_COUNT=$(echo "$PR_DATA" | jq '[.statusCheckRollup[] | select(.conclusion == null or .conclusion == "")] | length')
   SUCCESS_COUNT=$(echo "$PR_DATA" | jq '[.statusCheckRollup[] | select(.conclusion == "SUCCESS")] | length')
