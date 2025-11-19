@@ -8,7 +8,7 @@ if [[ -z $branch ]]; then
 fi
 
 # Check if local branch exists
-local_exists=$(jj bookmark list --no-pager "$branch" 2>/dev/null | grep -c "^$branch:")
+local_exists=$(jj bookmark list --no-pager "$branch" 2>/dev/null | grep -c "^$branch:" || true)
 
 if [[ $local_exists -eq 0 ]]; then
     # Branch not tracked locally, check out from origin
