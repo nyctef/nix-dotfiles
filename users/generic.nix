@@ -135,6 +135,7 @@ in
       # might try to start before the agenix service has fully loaded, so
       # we use waitcat instead of cat to work around the problem.
       hello = ''$(${waitcat}/bin/waitcat ${config.age.secrets.hello.path})'';
+      PAGER = ''less -FRX'';
     };
 
     home.sessionPath = [
