@@ -23,6 +23,7 @@ in
     ./neovim
     ./fish
     ./dotnet.nix
+    ./rgcompare-test-env.nix
 
     inputs.agenix.homeManagerModules.default
   ];
