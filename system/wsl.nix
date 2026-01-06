@@ -22,6 +22,7 @@
 
     environment.systemPackages = with pkgs; [
       wslu
+      (pkgs.callPackage ../utils/wsl-toast.nix {})
     ];
 
   };
