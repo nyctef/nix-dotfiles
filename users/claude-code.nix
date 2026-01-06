@@ -12,9 +12,21 @@
       csharp-ls
     ];
 
-    # Create a local csharp-lsp plugin since the official one is incomplete
-    # This goes in .claude-plugins (not .claude/plugins) for --plugin-dir to find
-    home.file.".claude-plugins/csharp-lsp/.claude-plugin/plugin.json".text = builtins.toJSON {
+    # Create marketplace structure
+    home.file.".claude-plugins/.claude-plugin/marketplace.json".text = builtins.toJSON {
+      name = "local-plugins";
+      owner.name = "Local Configuration";
+      plugins = [
+        {
+          name = "csharp-lsp";
+          source = "./plugins/csharp-lsp";
+          description = "C# language server providing code intelligence and diagnostics";
+        }
+      ];
+    };
+
+    # Create the plugin
+    home.file.".claude-plugins/plugins/csharp-lsp/.claude-plugin/plugin.json".text = builtins.toJSON {
       name = "csharp-lsp";
       version = "1.0.0";
       description = "C# language server providing code intelligence and diagnostics";
@@ -22,7 +34,7 @@
       lspServers = "./.lsp.json";
     };
 
-    home.file.".claude-plugins/csharp-lsp/.lsp.json".text = builtins.toJSON {
+    home.file.".claude-plugins/plugins/csharp-lsp/.lsp.json".text = builtins.toJSON {
       csharp = {
         command = "${pkgs.csharp-ls}/bin/csharp-ls";
         args = [ ];
@@ -34,7 +46,7 @@
       };
     };
 
-    # Register a local marketplace and enable the plugin
+    # Register the marketplace and enable the plugin
     home.file.".claude/settings.json".text = builtins.toJSON {
       extraKnownMarketplaces = {
         local-plugins = {
