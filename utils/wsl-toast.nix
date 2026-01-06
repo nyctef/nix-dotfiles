@@ -18,5 +18,5 @@ pkgs.writeShellScriptBin "wsl-toast" ''
     TITLE="WSL"
   fi
 
-  powershell.exe -ExecutionPolicy Bypass -File "${psScript}" -Title "$TITLE" -Message "$MESSAGE" 2>/dev/null
+  /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -ExecutionPolicy Bypass -File "${psScript}" -Title "$TITLE" -Message "$MESSAGE" 2>/dev/null
 ''
