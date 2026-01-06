@@ -24,6 +24,7 @@ in
     ./fish
     ./dotnet.nix
     ./rgcompare-test-env.nix
+    ./claude-code.nix
 
     inputs.agenix.homeManagerModules.default
   ];
