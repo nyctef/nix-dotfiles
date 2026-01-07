@@ -85,6 +85,7 @@ in
       wget
       tree
       bc
+      fzf
 
       # dev tools
       maven
