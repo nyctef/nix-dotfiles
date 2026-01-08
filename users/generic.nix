@@ -14,6 +14,7 @@ let
 
   waitcat = import ../utils/waitcat.nix { inherit pkgs; };
   watch-pr = import ../utils/watch-pr.nix { inherit pkgs; };
+  claude-code-transcripts = import ../utils/claude-code-transcripts.nix { inherit pkgs; };
 in
 {
 
@@ -93,6 +94,7 @@ in
       github-copilot-cli
       claude-code
       watch-pr
+      claude-code-transcripts
     ];
 
     # Home Manager is pretty good at managing dotfiles. The primary way to manage
