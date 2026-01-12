@@ -16,6 +16,9 @@
 
       # use global hooks directory for user-level hooks
       core.hooksPath = "${config.xdg.configHome}/git/hooks";
+
+      # set default branch name for new repositories
+      init.defaultBranch = "main";
     };
 
     includes = [
