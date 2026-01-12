@@ -22,6 +22,9 @@
       # set default branch name for new repositories
       init.defaultBranch = "main";
 
+      # automatically set up remote tracking for new branches
+      push.autoSetupRemote = true;
+
       alias = {
         lg = "log --graph --abbrev-commit --decorate --date=relative --format=format:'%h%C(reset) - %C(bold green)(%ar)%C(reset) %s%C(reset) %C(bold green)- %an%C(reset)%C(bold yellow)%d%C(reset)'";
         st = "status --untracked-files=all";
