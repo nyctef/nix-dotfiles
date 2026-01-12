@@ -21,6 +21,23 @@
 
       # set default branch name for new repositories
       init.defaultBranch = "main";
+
+      alias = {
+        lg = "log --graph --abbrev-commit --decorate --date=relative --format=format:'%h%C(reset) - %C(bold green)(%ar)%C(reset) %s%C(reset) %C(bold green)- %an%C(reset)%C(bold yellow)%d%C(reset)'";
+        st = "status --untracked-files=all";
+        ci = "commit --verbose";
+        di = "diff --color-words";
+        amend = "commit --amend";
+        fom = "fetch origin main:main";
+        co = "checkout";
+        p = "pull --ff-only";
+        rhard = "reset --hard";
+        ch = "cherry-pick";
+        rcon = "rebase --continue";
+        force-push = "push --force-with-lease";
+        rhu = "reset --hard @{upstream}";
+        mt = "mergetool";
+      };
     };
 
     includes = [
