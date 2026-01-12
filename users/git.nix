@@ -7,10 +7,12 @@
   programs.git = {
     enable = true;
 
-    userName = "Nyctef";
-    userEmail = "nyctef@nyctef.com";
-
     settings = {
+      user = {
+        name = "Nyctef";
+        email = "nyctef@nyctef.com";
+      };
+
       # include diff in commit message editor
       commit.verbose = true;
 
