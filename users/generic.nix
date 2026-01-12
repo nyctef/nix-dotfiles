@@ -19,6 +19,7 @@ in
 {
 
   imports = [
+    ./git.nix
     ./jujutsu.nix
     ./tmux.nix
     ./neovim
@@ -167,15 +168,5 @@ in
 
     # Let Home Manager install and manage itself.
     programs.home-manager.enable = true;
-
-    # git stuff
-    programs.git = {
-      enable = true;
-      settings = {
-        # include diff in commit message editor
-        commit.verbose = true;
-
-      };
-    };
   };
 }
