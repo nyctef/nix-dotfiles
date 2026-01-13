@@ -59,6 +59,19 @@
       enabledPlugins = {
         "csharp-lsp@local-plugins" = true;
       };
+      hooks = {
+        Notification = [
+          {
+            matcher = "idle_prompt";
+            hooks = [
+              {
+                type = "command";
+                command = "${config.home.homeDirectory}/.dotfiles/utils/claude-notification-hook.sh";
+              }
+            ];
+          }
+        ];
+      };
     };
 
     home.file.".claude/CLAUDE.md".text = ''
