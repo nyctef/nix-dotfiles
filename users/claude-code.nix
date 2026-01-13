@@ -62,7 +62,7 @@
       hooks = {
         Notification = [
           {
-            matcher = "idle_prompt";
+            matcher = "*";
             hooks = [
               {
                 type = "command";
