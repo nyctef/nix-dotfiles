@@ -88,6 +88,7 @@ in
       tree
       bc
       fzf
+      jq
 
       # dev tools
       maven
