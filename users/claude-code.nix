@@ -10,6 +10,7 @@
   config = {
     home.packages = with pkgs; [
       csharp-ls
+      jq
     ];
 
     # Create marketplace structure
@@ -46,33 +47,11 @@
       };
     };
 
-    # Register the marketplace and enable the plugin
-    home.file.".claude/settings.json".text = builtins.toJSON {
-      extraKnownMarketplaces = {
-        local-plugins = {
-          source = {
-            source = "directory";
-            path = "${config.home.homeDirectory}/.claude-plugins";
-          };
-        };
-      };
-      enabledPlugins = {
-        "csharp-lsp@local-plugins" = true;
-      };
-      hooks = {
-        Notification = [
-          {
-            matcher = "*";
-            hooks = [
-              {
-                type = "command";
-                command = "${config.home.homeDirectory}/.dotfiles/utils/claude-notification-hook.sh";
-              }
-            ];
-          }
-        ];
-      };
-    };
+    # Patch settings.json declaratively while allowing Claude Code to manage it mutably
+    # This uses a shell script to merge our declarative settings with Claude's runtime settings
+    home.activation.patchClaudeSettings = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      run ${pkgs.bash}/bin/bash ${./patch-claude-settings.sh}
+    '';
 
     home.file.".claude/CLAUDE.md".text = ''
     - commit regularly to checkpoint changes
