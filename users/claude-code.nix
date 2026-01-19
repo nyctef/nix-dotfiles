@@ -59,5 +59,8 @@
     - use gh cli to read contents of issues and pull requests. fetch both description and comments
     - do not add github issue references to commit messages
     '';
+
+    # Skills
+    home.file.".claude/skills/pr-review-comments/SKILL.md".source = ./claude-code/pr-review-comments.md;
   };
 }
