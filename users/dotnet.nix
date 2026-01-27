@@ -14,8 +14,8 @@ with lib;
   config = {
 
     home.packages = with pkgs; [
-      dotnetCorePackages.sdk_9_0-bin
-
+      # dotnetCorePackages.sdk_9_0-bin
+      dotnetCorePackages.sdk_10_0-bin
     ];
 
     age.secrets.rgPackagingRead.file = ../secrets/rg-packaging-read.age;
