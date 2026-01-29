@@ -49,6 +49,13 @@
       };
     };
 
+    # Install claude via native installer if not present
+    home.activation.installClaude = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      if [ ! -x "$HOME/.local/bin/claude" ]; then
+        run ${pkgs.curl}/bin/curl -fsSL https://claude.ai/install.sh | ${pkgs.bash}/bin/bash
+      fi
+    '';
+
     # Patch settings.json declaratively while allowing Claude Code to manage it mutably
     # This uses a shell script to merge our declarative settings with Claude's runtime settings
     home.activation.patchClaudeSettings = lib.hm.dag.entryAfter [ "writeBoundary" ] ''

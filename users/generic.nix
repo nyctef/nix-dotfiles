@@ -94,7 +94,6 @@ in
       maven
       dig
       github-copilot-cli
-      claude-code
       watch-pr
       claude-code-transcripts
     ];
