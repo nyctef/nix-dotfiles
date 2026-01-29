@@ -8,6 +8,8 @@
 
 {
   config = {
+    home.sessionPath = [ "$HOME/.local/bin" ]; # `claude install` puts the cli here
+
     home.packages = with pkgs; [
       csharp-ls
       jq
