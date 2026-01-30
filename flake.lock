@@ -313,7 +313,8 @@
         "neovim-nightly-overlay": "neovim-nightly-overlay",
         "nixCats": "nixCats",
         "nixos-wsl": "nixos-wsl",
-        "nixpkgs": "nixpkgs_2"
+        "nixpkgs": "nixpkgs_2",
+        "ticket": "ticket"
       }
     },
     "rust-analyzer-src": {
@@ -345,6 +346,22 @@
       "original": {
         "owner": "nix-systems",
         "repo": "default",
+        "type": "github"
+      }
+    },
+    "ticket": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1769628515,
+        "narHash": "sha256-sHb4EycEmlalWxIQ1AlI71g3dHia7ExCL6bIHlaeptg=",
+        "owner": "wedow",
+        "repo": "ticket",
+        "rev": "51fe35906c7cd4747612a9060777d965efd94d10",
+        "type": "github"
+      },
+      "original": {
+        "owner": "wedow",
+        "repo": "ticket",
         "type": "github"
       }
     }
