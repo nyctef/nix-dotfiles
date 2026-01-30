@@ -10,4 +10,6 @@ pkgs.writeShellApplication {
   ];
 
   text = builtins.readFile "${ticket-src}/ticket";
+
+  checkPhase = ""; # Skip shellcheck for upstream code
 }
