@@ -38,6 +38,17 @@ log = 'zzzz | (visible_heads() & committer_date(after:"1 month ago")) | trunk().
 
 [aliases]
 tug = ["bookmark", "move", "--from", "heads(::@- & bookmarks())", "--to", "@-"]
+# Usage: jj splice <source> <dest>
+# Rebases <source>..@- after <dest>, then advances <dest> bookmark to just before <source>
+splice = [
+  "util", "exec", "--", "bash", "-c",
+  '''
+set -e
+jj rebase -r "$1..@-" -A "$2"
+jj bookmark set -r "$1- & $2::" "$2"
+''',
+  "_",
+]
 
 [git]
 # https://github.com/jj-vcs/jj/blob/main/docs/config.md#set-of-private-commits
