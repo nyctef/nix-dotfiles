@@ -152,7 +152,6 @@ in
                 "vim"
                 "nvim"
               ];
-              neovim-unwrapped = inputs.neovim-nightly-overlay.packages.${pkgs.system}.neovim;
             };
             # and a set of categories that you want
             # (and other information to pass to lua)

@@ -26,7 +26,7 @@ set nohlsearch
 " picking an option
 " menuone: open the completion menu even when there's only one result
 set completeopt=longest,menuone
-set completeopt+=fuzzy " requires nightly
+set completeopt+=fuzzy
 " for simple completion (C-P, C-N) only take matches from the current buffer
 set complete=.
 " settings for how command-line completion works
