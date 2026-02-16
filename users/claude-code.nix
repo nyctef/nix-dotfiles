@@ -88,6 +88,7 @@ in
     # Install claude via native installer if not present
     home.activation.installClaude = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
       if [ ! -x "$HOME/.local/bin/claude" ]; then
+        export PATH="${lib.makeBinPath [ pkgs.curl pkgs.coreutils ]}:$PATH"
         run ${pkgs.curl}/bin/curl -fsSL https://claude.ai/install.sh | ${pkgs.bash}/bin/bash
       fi
     '';
