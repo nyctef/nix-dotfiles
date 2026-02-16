@@ -12,6 +12,11 @@
     mouse = true;
     terminal = "tmux-256color";
     extraConfig = ''
+      # Terminal overrides for proper color support
+      # Tc: Enable RGB/true color support (tmux extension)
+      # https://github.com/tmux/tmux/wiki/FAQ#how-do-i-use-rgb-colour
+      set -as terminal-overrides ",xterm-256color:Tc"
+
       # make splits open in the current folder
       bind '"' split-window -v -c "#{pane_current_path}"
       bind % split-window -h -c "#{pane_current_path}"

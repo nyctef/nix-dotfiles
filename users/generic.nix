@@ -145,6 +145,10 @@ in
       # we use waitcat instead of cat to work around the problem.
       hello = ''$(${waitcat}/bin/waitcat ${config.age.secrets.hello.path})'';
       PAGER = ''less -FRX'';
+      # Enable UTF-8 support for tmux and other terminal applications
+      # Without this, tmux replaces UTF-8 characters with underscores
+      # https://github.com/tmux/tmux/wiki/FAQ#how-do-i-use-utf-8
+      LANG = "en_US.UTF-8";
     };
 
     home.sessionPath = [
