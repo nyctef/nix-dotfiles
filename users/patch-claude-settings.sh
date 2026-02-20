@@ -53,6 +53,17 @@ DECLARATIVE_SETTINGS='
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'${HOME}'/.dotfiles/utils/claude-sandbox-cleanup-hook.sh"
+          }
+        ]
+      }
     ]
   }
 }
