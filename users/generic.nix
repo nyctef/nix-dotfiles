@@ -90,6 +90,7 @@ in
       bc
       fzf
       jq
+      file
 
       # dev tools
       maven
