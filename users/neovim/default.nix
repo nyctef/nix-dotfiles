@@ -78,8 +78,8 @@ in
                 vim-textobj-entire # ae and ie text objects for the whole buffer
               ];
             };
-            csharp = with pkgs.vimPlugins; [
-              roslyn-nvim
+            csharp = [
+              pkgs.neovimPlugins.roslyn-nvim
             ];
             # themer = with pkgs; [
             #   # you can even make subcategories based on categories and settings sets!

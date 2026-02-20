@@ -232,6 +232,23 @@
         "type": "github"
       }
     },
+    "plugins-roslyn-nvim": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1770579949,
+        "narHash": "sha256-7/uCaC9pc51e3MAAt1TFqJ862yzCqeapOlHHuK5I1KU=",
+        "owner": "molostovvs",
+        "repo": "roslyn.nvim",
+        "rev": "58479433ebcb314c38fbc6c63ee1a049bfdc0c62",
+        "type": "github"
+      },
+      "original": {
+        "owner": "molostovvs",
+        "ref": "fix-source-generated-bufs",
+        "repo": "roslyn.nvim",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "agenix": "agenix",
@@ -240,6 +257,7 @@
         "nixCats": "nixCats",
         "nixos-wsl": "nixos-wsl",
         "nixpkgs": "nixpkgs",
+        "plugins-roslyn-nvim": "plugins-roslyn-nvim",
         "ticket": "ticket"
       }
     },
