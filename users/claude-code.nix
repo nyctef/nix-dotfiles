@@ -7,6 +7,8 @@
 }:
 
 let
+  run-claude-docker = import ../utils/run-claude-docker.nix { inherit pkgs; };
+
   # Extract seccomp filter files from the @anthropic-ai/sandbox-runtime npm package.
   # Claude Code's sandbox uses seccomp (Linux kernel syscall filtering) to block
   # unix domain sockets, preventing sandboxed processes from escaping via local IPC.
@@ -49,6 +51,7 @@ in
       csharp-ls
       jq
       socat
+      run-claude-docker
     ];
 
     # Create marketplace structure
