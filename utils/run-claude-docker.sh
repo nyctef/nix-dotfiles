@@ -283,7 +283,14 @@ add_mount rw "${HOME}/.claude.json" "/home/claude/.claude.json"
 add_mount ro "$(readlink -f "${HOME}/.config/NuGet/NuGet.Config")" "/home/claude/.config/NuGet/NuGet.Config"
 add_mount ro "$(readlink -f "${HOME}/.config/NuGet/config/rg.config")" "/home/claude/.config/NuGet/config/rg.config"
 add_mount rw "${HOME}/.nuget/packages" "/home/claude/.nuget/packages"
+# Mount .dotfiles at both the container home and the host's absolute path.
+# The container home mount is for convenience; the host path mount is needed
+# because settings.json hooks contain hardcoded host paths (e.g.
+# /home/nixos/.dotfiles/utils/...) that must resolve inside the container.
 add_mount ro "${HOME}/.dotfiles"    "/home/claude/.dotfiles"
+if [[ "${HOME}/.dotfiles" != "/home/claude/.dotfiles" ]]; then
+    add_mount ro "${HOME}/.dotfiles" "${HOME}/.dotfiles"
+fi
 add_mount ro "${HOME}/.gitconfig"   "/home/claude/.gitconfig"
 add_mount ro "${HOME}/.config/git/config" "/home/claude/.config/git/config"
 add_mount ro "${HOME}/.config/gh"   "/home/claude/.config/gh"

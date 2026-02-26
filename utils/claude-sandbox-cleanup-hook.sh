@@ -24,6 +24,10 @@ SANDBOX_ARTIFACTS=(
   .mcp.json
   .vscode
   .idea
+  .claude/agents
+  .claude/commands
+  .claude/settings.json
+  .claude/skills
   .claude
   HEAD
   config
