@@ -69,6 +69,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         gh \
         jq \
         less \
+        python3 python-is-python3 \
         # [4] procps — gives Claude ps/top/kill so it can inspect and manage
         #     processes inside the container (e.g. checking if a build is hung)
         procps \
@@ -116,6 +117,11 @@ RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh &&
     rm /tmp/dotnet-install.sh
 ENV DOTNET_ROOT=/usr/share/dotnet
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      default-jdk-headless \
+      maven \
+  && rm -rf /var/lib/apt/lists/*
+
 # [5] Passwordless sudo for the claude user
 RUN echo "claude ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/claude && \
     chmod 0440 /etc/sudoers.d/claude
@@ -161,6 +167,7 @@ RUN for domain in \
         api.nuget.org \
         azureedge.net \
         dotnetcli.azureedge.net \
+        repo1.maven.org \
         red-gate.pkgs.visualstudio.com; do \
     dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}'; \
     done | sort -u > /etc/firewall-resolved-ips.txt
