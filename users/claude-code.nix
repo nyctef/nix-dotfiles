@@ -119,5 +119,7 @@ in
 
     # Skills
     home.file.".claude/skills/pr-review-comments/SKILL.md".source = ./claude-code/pr-review-comments.md;
+    home.file.".claude/skills/clone-repo-for-investigation/SKILL.md".source = ./claude-code/clone-repo-for-investigation.md;
+    home.file.".claude/skills/reverse-engineer-claude-binary/SKILL.md".source = ./claude-code/reverse-engineer-claude-binary.md;
   };
 }
