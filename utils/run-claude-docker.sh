@@ -80,11 +80,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         #     used by init-firewall.sh to set up a default-deny outbound
         #     firewall that only whitelists Claude API, GitHub, etc.
         #     Prevents accidental or malicious exfiltration to unknown hosts.
+        #     dnsmasq provides DNS-aware firewalling: it auto-adds resolved
+        #     IPs to the ipset on every DNS query, so CDN IP rotation is
+        #     handled transparently without rebuilding the image.
         iptables \
         ipset \
         iproute2 \
         dnsutils \
         aggregate \
+        dnsmasq \
     && rm -rf /var/lib/apt/lists/*
 
 # Docker CLI — only the client, no daemon. Talks to the host daemon via the
@@ -133,27 +137,18 @@ RUN mkdir -p /home/claude/.nuget /home/claude/.config/NuGet && \
     ln -s /home/claude/.config/NuGet /home/claude/.nuget/NuGet && \
     chown -R claude:claude /home/claude/.nuget /home/claude/.config/NuGet
 
-# ---- Firewall: resolve IPs at build time and bake into the image ----
-# This avoids slow DNS resolution and API fetches at container startup.
-# IPs go stale as the image ages; rebuild with --no-cache to refresh.
+# ---- Firewall: domain allowlist + build-time IP warm-start ----
+# /etc/firewall-domains.txt is the single source of truth for allowed domains.
+# At build time we resolve them to IPs for a warm-start ipset (fast first
+# connection). At runtime, dnsmasq uses the same list to dynamically add
+# freshly-resolved IPs to the ipset on every DNS query, so CDN IP rotation
+# (Akamai, Azure Front Door, etc.) is handled transparently.
 
-# GitHub IP ranges
-RUN curl -sf https://api.github.com/meta | \
-    jq -r '(.web + .api + .git)[]' | aggregate -q \
-    > /etc/firewall-github-cidrs.txt
-
-# Azure Storage IP ranges for UK South (where Azure DevOps stores NuGet
-# package blobs on *.blob.core.windows.net). Fetched from Microsoft's
-# weekly-updated service tags JSON.
-RUN DOWNLOAD_PAGE=$(curl -sf 'https://www.microsoft.com/en-us/download/details.aspx?id=56519') && \
-    JSON_URL=$(echo "$DOWNLOAD_PAGE" | grep -oP 'https://download\.microsoft\.com/download/[^"]+\.json' | head -1) && \
-    curl -sf "$JSON_URL" | \
-    jq -r '.values[] | select(.name == "Storage") | .properties.addressPrefixes[]' | \
-    grep -v ':' \
-    > /etc/firewall-azure-storage-cidrs.txt
-
-# Individual domains Claude needs — resolved to IPs
-RUN for domain in \
+# The domain list — one per line, used by both build-time DNS resolution
+# and the runtime dnsmasq --ipset configuration. dnsmasq's --ipset
+# automatically matches subdomains too, so e.g. "sentry.io" also covers
+# "o123.ingest.sentry.io" without needing explicit entries.
+RUN printf '%s\n' \
         api.anthropic.com \
         statsig.anthropic.com \
         statsig.com \
@@ -168,19 +163,42 @@ RUN for domain in \
         azureedge.net \
         dotnetcli.azureedge.net \
         repo1.maven.org \
-        red-gate.pkgs.visualstudio.com; do \
-    dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}'; \
-    done | sort -u > /etc/firewall-resolved-ips.txt
+        red-gate.pkgs.visualstudio.com \
+    > /etc/firewall-domains.txt
+
+# GitHub IP ranges (CIDR blocks from the GitHub API, not individual IPs)
+RUN curl -sf https://api.github.com/meta | \
+    jq -r '(.web + .api + .git)[]' | aggregate -q \
+    > /etc/firewall-github-cidrs.txt
+
+# Azure Storage IP ranges (where Azure DevOps stores NuGet package blobs
+# on *.blob.core.windows.net). Fetched from Microsoft's weekly-updated
+# service tags JSON.
+RUN DOWNLOAD_PAGE=$(curl -sf 'https://www.microsoft.com/en-us/download/details.aspx?id=56519') && \
+    JSON_URL=$(echo "$DOWNLOAD_PAGE" | grep -oP 'https://download\.microsoft\.com/download/[^"]+\.json' | head -1) && \
+    curl -sf "$JSON_URL" | \
+    jq -r '.values[] | select(.name == "Storage") | .properties.addressPrefixes[]' | \
+    grep -v ':' \
+    > /etc/firewall-azure-storage-cidrs.txt
+
+# Warm-start: resolve domain list to IPs at build time so the ipset is
+# pre-populated before dnsmasq handles any queries. These go stale over
+# time but dnsmasq will dynamically add fresh IPs at runtime.
+RUN while read -r domain; do \
+        dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}'; \
+    done < /etc/firewall-domains.txt | sort -u > /etc/firewall-resolved-ips.txt
 
 USER claude
 WORKDIR /home/claude/project
 EOF
 
 # ---------- firewall init script (inline) ----------
-# [3] Loads the pre-resolved IP whitelist baked into the image at build time,
-#     then configures iptables to default-deny all outbound traffic except
-#     to those IPs (plus DNS, SSH, localhost, and the Docker bridge).
-#     Requires --cap-add=NET_ADMIN and --cap-add=NET_RAW on docker run.
+# [3] Sets up a DNS-aware outbound firewall using dnsmasq + iptables + ipset.
+#     dnsmasq intercepts all DNS queries and dynamically adds resolved IPs to
+#     the ipset, so CDN IP rotation is handled transparently. Build-time
+#     resolved IPs provide a warm-start so the first connection doesn't race
+#     against DNS. Requires --cap-add=NET_ADMIN, --cap-add=NET_RAW, and
+#     --dns 127.0.0.1 on docker run.
 
 read -r -d '' FIREWALL_SCRIPT <<'FWEOF' || true
 #!/bin/bash
@@ -191,6 +209,38 @@ echo "Configuring firewall..."
 HOST_IP=$(ip route | grep default | cut -d" " -f3)
 HOST_NETWORK=$(echo "$HOST_IP" | sed "s/\.[0-9]*$/.0\/24/")
 
+# ---- Start dnsmasq as a local DNS-aware firewall helper ----
+# Docker's embedded DNS is at 127.0.0.11. We point dnsmasq upstream at it,
+# and dnsmasq listens on 127.0.0.1:53. The container's --dns 127.0.0.1
+# routes all DNS through dnsmasq, which auto-adds resolved IPs to the ipset.
+
+# Create the ipset early — dnsmasq needs it to exist before it can add entries
+ipset create allowed-domains hash:net
+
+# Build the --ipset argument: all domains in the allowlist map to the same
+# ipset. dnsmasq --ipset format: /domain1/domain2/.../ipset-name
+# dnsmasq's --ipset automatically matches subdomains, so "sentry.io"
+# also covers "o123.ingest.sentry.io" etc.
+IPSET_DOMAINS=""
+while read -r domain; do
+    [ -n "$domain" ] && IPSET_DOMAINS="${IPSET_DOMAINS}/${domain}"
+done < /etc/firewall-domains.txt
+
+# Also add github.com (covered by CIDR ranges at build time, but dnsmasq
+# can catch any new IPs from DNS too)
+IPSET_DOMAINS="${IPSET_DOMAINS}/github.com"
+
+dnsmasq \
+    --no-resolv \
+    --server=127.0.0.11 \
+    --listen-address=127.0.0.1 \
+    --bind-interfaces \
+    --ipset="${IPSET_DOMAINS}/allowed-domains" \
+    --log-facility=/var/log/dnsmasq.log \
+    --log-queries
+
+echo "dnsmasq started (upstream: 127.0.0.11, ipset: allowed-domains)"
+
 # Preserve Docker's internal DNS NAT rules before flushing
 DOCKER_DNS_RULES=$(iptables-save -t nat | grep "127\.0\.0\.11" || true)
 
@@ -198,7 +248,8 @@ DOCKER_DNS_RULES=$(iptables-save -t nat | grep "127\.0\.0\.11" || true)
 iptables -F; iptables -X
 iptables -t nat -F; iptables -t nat -X
 iptables -t mangle -F; iptables -t mangle -X
-ipset destroy allowed-domains 2>/dev/null || true
+# Note: we don't destroy the ipset here — it was created before dnsmasq
+# started, and dnsmasq is actively using it.
 
 # Restore Docker DNS if present
 if [ -n "$DOCKER_DNS_RULES" ]; then
@@ -207,17 +258,20 @@ if [ -n "$DOCKER_DNS_RULES" ]; then
     echo "$DOCKER_DNS_RULES" | xargs -L 1 iptables -t nat
 fi
 
-# Allow DNS, SSH, and localhost
-iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
+# Allow DNS (to local dnsmasq only), SSH, and localhost
+iptables -A OUTPUT -d 127.0.0.1 -p udp --dport 53 -j ACCEPT
+iptables -A OUTPUT -d 127.0.0.1 -p tcp --dport 53 -j ACCEPT
+# dnsmasq needs to reach Docker's upstream DNS at 127.0.0.11
+iptables -A OUTPUT -d 127.0.0.11 -p udp --dport 53 -j ACCEPT
+iptables -A OUTPUT -d 127.0.0.11 -p tcp --dport 53 -j ACCEPT
 iptables -A INPUT  -p udp --sport 53 -j ACCEPT
 iptables -A OUTPUT -p tcp --dport 22 -j ACCEPT
 iptables -A INPUT  -p tcp --sport 22 -m state --state ESTABLISHED -j ACCEPT
 iptables -A INPUT  -i lo -j ACCEPT
 iptables -A OUTPUT -o lo -j ACCEPT
 
-# Build the whitelist ipset from pre-resolved data baked into the image
-ipset create allowed-domains hash:net
-
+# Warm-start: load build-time resolved IPs (may be stale but ensure
+# immediate connectivity before any DNS queries go through dnsmasq)
 for f in /etc/firewall-github-cidrs.txt \
          /etc/firewall-azure-storage-cidrs.txt \
          /etc/firewall-resolved-ips.txt; do
@@ -363,6 +417,10 @@ exec docker run \
     `#        scoped to the container's own network namespace. Do NOT use`  \
     `#        --network host — that shares the host namespace, so the`      \
     `#        firewall rules would apply to (and persist on) the host. ----` \
+    `# ---- DNS: route through local dnsmasq so it can auto-add resolved` \
+    `#        IPs to the firewall ipset. dnsmasq forwards to Docker's`    \
+    `#        embedded DNS (127.0.0.11) upstream. ----`                    \
+    --dns 127.0.0.1 \
     \
     "$BUILT_IMAGE" \
     \
