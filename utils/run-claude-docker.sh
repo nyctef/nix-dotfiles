@@ -215,9 +215,11 @@ HOST_IP=$(ip route | grep default | cut -d" " -f3)
 HOST_NETWORK=$(echo "$HOST_IP" | sed "s/\.[0-9]*$/.0\/24/")
 
 # ---- Start dnsmasq as a local DNS-aware firewall helper ----
-# Docker's embedded DNS is at 127.0.0.11. We point dnsmasq upstream at it,
-# and dnsmasq listens on 127.0.0.1:53. The container's --dns 127.0.0.1
-# routes all DNS through dnsmasq, which auto-adds resolved IPs to the ipset.
+# We point dnsmasq upstream at the host/gateway DNS (the Docker bridge
+# gateway, typically 172.17.0.1). The container's --dns 127.0.0.1 routes
+# all DNS through dnsmasq, which auto-adds resolved IPs to the ipset.
+# Note: Docker's embedded DNS at 127.0.0.11 is only available when using
+# user-defined networks; on the default bridge it doesn't exist.
 
 # Create the ipset early — dnsmasq needs it to exist before it can add entries
 ipset create allowed-domains hash:net
@@ -235,40 +237,34 @@ done < /etc/firewall-domains.txt
 # can catch any new IPs from DNS too)
 IPSET_DOMAINS="${IPSET_DOMAINS}/github.com"
 
+# HOST_DNS is passed in from the host's /etc/resolv.conf. Fall back to
+# the default gateway if not set (works when the host runs a DNS resolver
+# on the bridge interface, but not on WSL2 where DNS is on a separate IP).
+UPSTREAM_DNS="${HOST_DNS:-$HOST_IP}"
+echo "Using upstream DNS: $UPSTREAM_DNS"
+
 dnsmasq \
     --no-resolv \
-    --server=127.0.0.11 \
+    --server="$UPSTREAM_DNS" \
     --listen-address=127.0.0.1 \
     --bind-interfaces \
     --ipset="${IPSET_DOMAINS}/allowed-domains" \
     --log-facility=/var/log/dnsmasq.log \
     --log-queries
 
-echo "dnsmasq started (upstream: 127.0.0.11, ipset: allowed-domains)"
+echo "dnsmasq started (upstream: $UPSTREAM_DNS, ipset: allowed-domains)"
 
-# Preserve Docker's internal DNS NAT rules before flushing
-DOCKER_DNS_RULES=$(iptables-save -t nat | grep "127\.0\.0\.11" || true)
-
-# Flush everything
+# Flush filter table only. Leave nat/mangle alone.
 iptables -F; iptables -X
-iptables -t nat -F; iptables -t nat -X
-iptables -t mangle -F; iptables -t mangle -X
-# Note: we don't destroy the ipset here — it was created before dnsmasq
-# started, and dnsmasq is actively using it.
 
-# Restore Docker DNS if present
-if [ -n "$DOCKER_DNS_RULES" ]; then
-    iptables -t nat -N DOCKER_OUTPUT 2>/dev/null || true
-    iptables -t nat -N DOCKER_POSTROUTING 2>/dev/null || true
-    echo "$DOCKER_DNS_RULES" | xargs -L 1 iptables -t nat
-fi
-
-# Allow DNS (to local dnsmasq only), SSH, and localhost
+# Allow DNS: local dnsmasq on loopback, and dnsmasq's upstream (gateway)
 iptables -A OUTPUT -d 127.0.0.1 -p udp --dport 53 -j ACCEPT
 iptables -A OUTPUT -d 127.0.0.1 -p tcp --dport 53 -j ACCEPT
-# dnsmasq needs to reach Docker's upstream DNS at 127.0.0.11
-iptables -A OUTPUT -d 127.0.0.11 -p udp --dport 53 -j ACCEPT
-iptables -A OUTPUT -d 127.0.0.11 -p tcp --dport 53 -j ACCEPT
+# dnsmasq needs to reach the upstream DNS (may be outside the Docker
+# bridge subnet, e.g. WSL2's DNS at 10.255.255.254)
+iptables -A OUTPUT -d "$UPSTREAM_DNS" -p udp --dport 53 -j ACCEPT
+iptables -A OUTPUT -d "$UPSTREAM_DNS" -p tcp --dport 53 -j ACCEPT
+iptables -A INPUT  -s "$UPSTREAM_DNS" -p udp --sport 53 -j ACCEPT
 iptables -A INPUT  -p udp --sport 53 -j ACCEPT
 iptables -A OUTPUT -p tcp --dport 22 -j ACCEPT
 iptables -A INPUT  -p tcp --sport 22 -m state --state ESTABLISHED -j ACCEPT
@@ -470,10 +466,11 @@ exec docker run \
     `#        scoped to the container's own network namespace. Do NOT use`  \
     `#        --network host — that shares the host namespace, so the`      \
     `#        firewall rules would apply to (and persist on) the host. ----` \
-    `# ---- DNS: route through local dnsmasq so it can auto-add resolved` \
-    `#        IPs to the firewall ipset. dnsmasq forwards to Docker's`    \
-    `#        embedded DNS (127.0.0.11) upstream. ----`                    \
+    `# ---- DNS: route through local dnsmasq so it can auto-add resolved`  \
+    `#        IPs to the firewall ipset. dnsmasq forwards to the host's`   \
+    `#        upstream DNS. ----`                                           \
     --dns 127.0.0.1 \
+    -e "HOST_DNS=$(grep -m1 '^nameserver' /etc/resolv.conf | awk '{print $2}')" \
     \
     "$BUILT_IMAGE" \
     \
