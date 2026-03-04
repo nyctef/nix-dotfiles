@@ -306,12 +306,13 @@ else
 fi
 
 # ---- Drop privileges and launch Claude ----
-# Run as the claude user with job control enabled so Ctrl-Z suspends Claude
+# Run as the claude user in an interactive shell so Ctrl-Z suspends Claude
 # and drops to a bash prompt inside the container (fg to resume).
+# The -i flag is critical: without it, bash -c runs non-interactively and
+# has no prompt loop, so suspending Claude just exits the shell immediately.
 # All arguments after -- are passed through as Claude args.
 shift  # consume the "--" separator
-exec runuser -u claude -- bash -c '
-set -m  # enable job control
+exec runuser -u claude -- bash -ic '
 claude --dangerously-skip-permissions "$@"
 ' -- "$@"
 FWEOF
