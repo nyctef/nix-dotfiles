@@ -306,15 +306,52 @@ else
 fi
 
 # ---- Drop privileges and launch Claude ----
-# Run as the claude user in an interactive shell so Ctrl-Z suspends Claude
-# and drops to a bash prompt inside the container (fg to resume).
-# The -i flag is critical: without it, bash -c runs non-interactively and
-# has no prompt loop, so suspending Claude just exits the shell immediately.
-# All arguments after -- are passed through as Claude args.
+# We need a real interactive bash with an active prompt loop so that Ctrl-Z
+# suspends Claude and drops to a shell (fg to resume).
+#
+# Why bash -c doesn't work (even with -i or set -m):
+#   bash -c 'cmd' executes the command string and exits — there is no
+#   read-eval-print loop. When the child is stopped by SIGTSTP, bash has
+#   no prompt to return to, so it just exits (taking the container with it).
+#
+# Solution: start a real interactive bash via --rcfile. The rcfile uses
+# PROMPT_COMMAND to launch Claude exactly once, at the first prompt —
+# when job control is already active. Ctrl-Z then works normally:
+# bash suspends Claude, shows its prompt, and fg resumes it.
 shift  # consume the "--" separator
-exec runuser -u claude -- bash -ic '
-claude --dangerously-skip-permissions "$@"
-' -- "$@"
+
+# Build the claude command with properly quoted args
+CLAUDE_CMD="claude --dangerously-skip-permissions"
+for arg in "$@"; do
+    CLAUDE_CMD+=" $(printf '%q' "$arg")"
+done
+
+CLAUDE_RCFILE="/tmp/claude-bashrc"
+cat > "$CLAUDE_RCFILE" <<RCEOF
+# Source the default bashrc for colors, aliases, prompt, etc.
+[ -f /etc/bash.bashrc ] && . /etc/bash.bashrc
+[ -f ~/.bashrc ] && . ~/.bashrc
+
+# Launch Claude once at the first prompt (job control is active by then).
+# After Claude exits normally, exit the shell too (stops the container).
+# If Claude was suspended (Ctrl-Z), the prompt loop keeps running.
+_launch_claude() {
+    # Remove ourselves so we only fire once
+    unset PROMPT_COMMAND
+    $CLAUDE_CMD
+    local rc=\$?
+    # If there are stopped jobs (Ctrl-Z), stay in the shell
+    if jobs -s | grep -q .; then
+        echo "(Claude suspended — type 'fg' to resume, 'exit' to quit)"
+        return
+    fi
+    exit "\$rc"
+}
+PROMPT_COMMAND=_launch_claude
+RCEOF
+chown claude:claude "$CLAUDE_RCFILE"
+
+exec runuser -u claude -- bash --rcfile "$CLAUDE_RCFILE" -i
 FWEOF
 
 # ---------- pre-flight checks ----------
