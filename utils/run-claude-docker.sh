@@ -161,6 +161,7 @@ RUN printf '%s\n' \
         registry-1.docker.io \
         auth.docker.io \
         production.cloudflare.docker.com \
+        download.docker.com \
         archive.ubuntu.com \
         security.ubuntu.com \
         api.nuget.org \
