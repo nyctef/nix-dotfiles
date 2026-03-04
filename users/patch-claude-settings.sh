@@ -25,12 +25,6 @@ fi
 DECLARATIVE_SETTINGS='
 {
   "extraKnownMarketplaces": {
-    "local-plugins": {
-      "source": {
-        "source": "directory",
-        "path": "'${HOME}'/.claude-plugins"
-      }
-    },
     "superpowers-marketplace": {
       "source": {
         "source": "github",
@@ -39,7 +33,7 @@ DECLARATIVE_SETTINGS='
     }
   },
   "enabledPlugins": {
-    "csharp-lsp@local-plugins": true,
+    "csharp-lsp@claude-plugins-official": true,
     "superpowers@superpowers-marketplace": true
   },
   "hooks": {
@@ -71,6 +65,27 @@ DECLARATIVE_SETTINGS='
 
 # Read current settings
 CURRENT_SETTINGS=$(cat "$SETTINGS_FILE")
+
+# Clean up stale local-plugins references from previous configuration
+CURRENT_SETTINGS=$(echo "$CURRENT_SETTINGS" | jq '
+  del(.extraKnownMarketplaces["local-plugins"]) |
+  del(.enabledPlugins["csharp-lsp@local-plugins"])
+')
+
+# Clean up stale local plugin cache, installed_plugins, and known_marketplaces entries
+INSTALLED_PLUGINS="${HOME}/.claude/plugins/installed_plugins.json"
+if [ -f "$INSTALLED_PLUGINS" ] && jq -e '.plugins["csharp-lsp@local-plugins"]' "$INSTALLED_PLUGINS" > /dev/null 2>&1; then
+    UPDATED_INSTALLED=$(jq 'del(.plugins["csharp-lsp@local-plugins"])' "$INSTALLED_PLUGINS")
+    echo "$UPDATED_INSTALLED" > "$INSTALLED_PLUGINS"
+fi
+
+KNOWN_MARKETPLACES="${HOME}/.claude/plugins/known_marketplaces.json"
+if [ -f "$KNOWN_MARKETPLACES" ] && jq -e '.["local-plugins"]' "$KNOWN_MARKETPLACES" > /dev/null 2>&1; then
+    UPDATED_MARKETPLACES=$(jq 'del(.["local-plugins"])' "$KNOWN_MARKETPLACES")
+    echo "$UPDATED_MARKETPLACES" > "$KNOWN_MARKETPLACES"
+fi
+
+rm -rf "${HOME}/.claude/plugins/cache/local-plugins"
 
 # Merge declarative settings with current settings
 # Our declarative settings take precedence for the keys we manage

@@ -54,40 +54,6 @@ in
       run-claude-docker
     ];
 
-    # Create marketplace structure
-    home.file.".claude-plugins/.claude-plugin/marketplace.json".text = builtins.toJSON {
-      name = "local-plugins";
-      owner.name = "Local Configuration";
-      plugins = [
-        {
-          name = "csharp-lsp";
-          source = "./plugins/csharp-lsp";
-          description = "C# language server providing code intelligence and diagnostics";
-        }
-      ];
-    };
-
-    # Create the plugin
-    home.file.".claude-plugins/plugins/csharp-lsp/.claude-plugin/plugin.json".text = builtins.toJSON {
-      name = "csharp-lsp";
-      version = "1.0.0";
-      description = "C# language server providing code intelligence and diagnostics";
-      author.name = "Local Configuration";
-      lspServers = "./.lsp.json";
-    };
-
-    home.file.".claude-plugins/plugins/csharp-lsp/.lsp.json".text = builtins.toJSON {
-      csharp = {
-        command = "${pkgs.csharp-ls}/bin/csharp-ls";
-        args = [ ];
-        extensionToLanguage = {
-          ".cs" = "csharp";
-        };
-        restartOnCrash = true;
-        maxRestarts = 5;
-      };
-    };
-
     # Install claude via native installer if not present
     home.activation.installClaude = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
       if [ ! -x "$HOME/.local/bin/claude" ]; then
