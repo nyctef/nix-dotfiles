@@ -126,8 +126,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       maven \
   && rm -rf /var/lib/apt/lists/*
 
-# [5] Passwordless sudo for the claude user
-RUN echo "claude ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/claude && \
+# [5] Sudo for the claude user — restricted to package management only.
+# The container starts as root for firewall init, then drops to the claude
+# user. This sudoers rule lets Claude install packages at runtime but
+# prevents it from modifying the firewall (iptables, ipset, dnsmasq, etc.).
+RUN echo "claude ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/dpkg" \
+    > /etc/sudoers.d/claude && \
     chmod 0440 /etc/sudoers.d/claude
 
 # NuGet reads config from ~/.nuget/NuGet/, which on the host is a symlink to
@@ -188,7 +192,8 @@ RUN while read -r domain; do \
         dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}'; \
     done < /etc/firewall-domains.txt | sort -u > /etc/firewall-resolved-ips.txt
 
-USER claude
+# Container starts as root so init-firewall.sh can configure iptables/ipset
+# without sudo. The firewall script drops to the claude user after setup.
 WORKDIR /home/claude/project
 EOF
 
@@ -299,6 +304,16 @@ if curl --connect-timeout 5 -sf https://example.com >/dev/null 2>&1; then
 else
     echo "OK: example.com blocked as expected"
 fi
+
+# ---- Drop privileges and launch Claude ----
+# Run as the claude user with job control enabled so Ctrl-Z suspends Claude
+# and drops to a bash prompt inside the container (fg to resume).
+# All arguments after -- are passed through as Claude args.
+shift  # consume the "--" separator
+exec runuser -u claude -- bash -c '
+set -m  # enable job control
+claude --dangerously-skip-permissions "$@"
+' -- "$@"
 FWEOF
 
 # ---------- pre-flight checks ----------
@@ -424,4 +439,4 @@ exec docker run \
     \
     "$BUILT_IMAGE" \
     \
-    bash -c 'sudo /usr/local/bin/init-firewall.sh && exec claude --dangerously-skip-permissions "$@"' -- "${CLAUDE_ARGS[@]}"
+    /usr/local/bin/init-firewall.sh -- "${CLAUDE_ARGS[@]}"
