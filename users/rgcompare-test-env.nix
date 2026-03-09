@@ -8,7 +8,7 @@ let
 
     src = pkgs.fetchurl {
       url = "https://github.com/flyway/flyway/releases/download/flyway-${version}/flyway-commandline-${version}-linux-x64.tar.gz";
-      sha256 = "sha256-KHmiWjxCtoI7xYWJZ2+tE0sPiEhTEhRHjczkyFt6K+U=";
+      sha256 = "sha256-CCFNWTqbZtfce89XzukhovJ6p6DKdBCrQu3RJ1rYk24=";
     };
 
     nativeBuildInputs = [ pkgs.autoPatchelfHook ];

@@ -28,7 +28,7 @@ fi
 
 URL="https://github.com/flyway/flyway/releases/download/flyway-${LATEST}/flyway-commandline-${LATEST}-linux-x64.tar.gz"
 echo "Prefetching hash for $URL..."
-HASH=$(nix-prefetch-url --unpack --type sha256 "$URL")
+HASH=$(nix-prefetch-url --type sha256 "$URL")
 SRI=$(nix hash convert --hash-algo sha256 --to sri "$HASH")
 
 echo "New hash: $SRI"
