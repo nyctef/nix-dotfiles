@@ -13,11 +13,16 @@ let
 
     nativeBuildInputs = [ pkgs.autoPatchelfHook ];
 
-    # Ignore missing GUI libraries since we only need headless JDBC
+    # The Redgate edition's bundled JRE links against X11/GUI libs even for CLI use
     autoPatchelfIgnoreMissingDeps = true;
 
     buildInputs = [
       pkgs.stdenv.cc.cc.lib
+      pkgs.xorg.libX11
+      pkgs.xorg.libXext
+      pkgs.xorg.libXi
+      pkgs.xorg.libXrender
+      pkgs.xorg.libXtst
     ];
 
     installPhase = ''
