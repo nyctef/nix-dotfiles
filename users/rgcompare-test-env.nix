@@ -21,11 +21,18 @@ let
     ];
 
     installPhase = ''
-      mkdir -p $out
-      cp -r . $out/
+      mkdir -p $out/lib/flyway $out/bin
+      cp -r . $out/lib/flyway/
 
       # Make the java binaries executable
-      chmod +x $out/jre/bin/*
+      chmod +x $out/lib/flyway/jre/bin/*
+
+      # Wrapper that exec's flyway from its original directory
+      cat > $out/bin/flyway <<WRAPPER
+      #!/bin/sh
+      exec $out/lib/flyway/flyway "\$@"
+      WRAPPER
+      chmod +x $out/bin/flyway
     '';
 
     meta = with pkgs.lib; {
