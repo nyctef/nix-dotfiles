@@ -9,8 +9,11 @@ if [[ ! -f "$NIX_FILE" ]]; then
   exit 1
 fi
 
-echo "Fetching latest flyway version from GitHub..."
-LATEST=$(gh api repos/flyway/flyway/releases/latest --jq '.tag_name' | sed 's/^flyway-//')
+REDGATE_BASE="https://download.red-gate.com/maven/release/com/redgate/flyway/flyway-commandline"
+
+echo "Fetching latest flyway version from Redgate..."
+LATEST=$(curl -sfL "$REDGATE_BASE/maven-metadata.xml" \
+  | grep '<release>' | sed 's/.*<release>\(.*\)<\/release>.*/\1/')
 
 if [[ -z "$LATEST" ]]; then
   echo "Error: could not determine latest version" >&2
@@ -26,7 +29,7 @@ if [[ "$CURRENT" == "$LATEST" ]]; then
   exit 0
 fi
 
-URL="https://github.com/flyway/flyway/releases/download/flyway-${LATEST}/flyway-commandline-${LATEST}-linux-x64.tar.gz"
+URL="${REDGATE_BASE}/${LATEST}/flyway-commandline-${LATEST}-linux-x64.tar.gz"
 echo "Prefetching hash for $URL..."
 HASH=$(nix-prefetch-url --type sha256 "$URL")
 SRI=$(nix hash convert --hash-algo sha256 --to sri "$HASH")
