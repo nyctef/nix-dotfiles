@@ -4,11 +4,11 @@ let
   # Package Flyway with its bundled JRE and drivers
   flyway = pkgs.stdenv.mkDerivation rec {
     pname = "flyway";
-    version = "10.21.0";
+    version = "12.1.0";
 
     src = pkgs.fetchurl {
-      url = "https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/${version}/flyway-commandline-${version}-linux-x64.tar.gz";
-      sha256 = "sha256-4gVcGAp/nQmDrp7Aj035qWP/7vfxKA3oVXr9Lt2hH80=";
+      url = "https://github.com/flyway/flyway/releases/download/flyway-${version}/flyway-commandline-${version}-linux-x64.tar.gz";
+      sha256 = "sha256-KHmiWjxCtoI7xYWJZ2+tE0sPiEhTEhRHjczkyFt6K+U=";
     };
 
     nativeBuildInputs = [ pkgs.autoPatchelfHook ];
