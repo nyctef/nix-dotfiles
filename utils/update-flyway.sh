@@ -29,7 +29,7 @@ fi
 
 URL="https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/${LATEST}/flyway-commandline-${LATEST}-linux-x64.tar.gz"
 echo "Prefetching hash for $URL..."
-HASH=$(nix-prefetch-url --unpack --type sha256 "$URL" 2>/dev/null)
+HASH=$(nix-prefetch-url --unpack --type sha256 "$URL")
 SRI=$(nix hash convert --hash-algo sha256 --to sri "$HASH")
 
 echo "New hash: $SRI"
