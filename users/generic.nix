@@ -83,6 +83,12 @@ in
       # ff14-utils
       inputs.ff14-utils.packages.${system}.default
 
+      # nugetui
+      inputs.nugetui.packages.${system}.default
+      (pkgs.writeShellScriptBin "rgpackages" ''
+        exec nugetui --source red_gate "$@"
+      '')
+
       # utils
       pstree
       wget

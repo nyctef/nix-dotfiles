@@ -18,6 +18,9 @@
     ff14-utils.url = "github:nyctef/ff14-utils";
     ff14-utils.inputs.nixpkgs.follows = "nixpkgs";
 
+    nugetui.url = "github:nyctef/nugetui";
+    nugetui.inputs.nixpkgs.follows = "nixpkgs";
+
     ticket.url = "github:wedow/ticket";
     ticket.flake = false;
 

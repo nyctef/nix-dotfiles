@@ -232,6 +232,26 @@
         "type": "github"
       }
     },
+    "nugetui": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1772815033,
+        "narHash": "sha256-jCufhoq5VjLKvhLUqUgpIMr+3Irx/AzC3NcBhhncODE=",
+        "owner": "nyctef",
+        "repo": "nugetui",
+        "rev": "2e2a7da50ada0fc551e776038cd5d9e70c60b77a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nyctef",
+        "repo": "nugetui",
+        "type": "github"
+      }
+    },
     "plugins-roslyn-nvim": {
       "flake": false,
       "locked": {
@@ -257,6 +277,7 @@
         "nixCats": "nixCats",
         "nixos-wsl": "nixos-wsl",
         "nixpkgs": "nixpkgs",
+        "nugetui": "nugetui",
         "plugins-roslyn-nvim": "plugins-roslyn-nvim",
         "ticket": "ticket"
       }
