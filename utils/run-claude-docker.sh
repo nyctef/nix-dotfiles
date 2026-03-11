@@ -168,6 +168,10 @@ RUN printf '%s\n' \
         azureedge.net \
         dotnetcli.azureedge.net \
         repo1.maven.org \
+        repo.gradle.org \
+        s3.amazonaws.com \
+        maven.pkg.github.com \
+        maven-central.storage-download.googleapis.com \
         red-gate.pkgs.visualstudio.com \
     > /etc/firewall-domains.txt
 
