@@ -97,6 +97,8 @@ in
       fzf
       jq
       file
+      zip
+      unzipNLS
 
       # dev tools
       maven
