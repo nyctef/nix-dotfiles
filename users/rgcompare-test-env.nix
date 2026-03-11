@@ -18,11 +18,11 @@ let
 
     buildInputs = [
       pkgs.stdenv.cc.cc.lib
-      pkgs.xorg.libX11
-      pkgs.xorg.libXext
-      pkgs.xorg.libXi
-      pkgs.xorg.libXrender
-      pkgs.xorg.libXtst
+      pkgs.libx11
+      pkgs.libxext
+      pkgs.libxi
+      pkgs.libxrender
+      pkgs.libxtst
     ];
 
     installPhase = ''
