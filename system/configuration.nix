@@ -23,6 +23,11 @@
 
   ];
 
+  # Pin the system flake registry's nixpkgs to the same revision as this flake's input,
+  # so that `nix search nixpkgs` matches the packages available in this configuration.
+  # https://search.nixos.org/options?query=nix.registry
+  nix.registry.nixpkgs.flake = inputs.nixpkgs;
+
   nix.settings.experimental-features = [
     "nix-command"
     "flakes"
