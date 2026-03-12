@@ -50,6 +50,19 @@ jj bookmark set -r "$1- & $2::" "$2"
   "_",
 ]
 
+# Usage: jj splice <source> <dest>
+# Rebases <source>..@- before <source>, then creates <dest> bookmark to just before <source>
+splice-new = [
+  "util", "exec", "--", "bash", "-c",
+  '''
+set -e
+head=$(jj log -r @- --no-graph -T 'change_id')
+jj rebase -r "$1..@-" -A "trunk()" -B "$1"
+jj bookmark create -r "$head" "$2"
+''',
+  "_",
+]
+
 [git]
 # https://github.com/jj-vcs/jj/blob/main/docs/config.md#set-of-private-commits
 private-commits = "description(glob:'private:*')"
