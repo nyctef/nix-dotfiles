@@ -13,7 +13,7 @@ shopt -s inherit_errexit
 
 trap 'exit 1' ERR
 
-SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUTPUT="$SCRIPT_DIR/dotnet-versions/10.0.nix"
 
 major_minor="10.0"
