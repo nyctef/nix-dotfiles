@@ -40,6 +40,6 @@ in
 {
   dotnetCorePackages = prev.dotnetCorePackages // {
     sdk_10_0_1xx-bin = dotnet10bin.sdk_10_0_1xx;
-    sdk_10_0-bin = dotnet10bin.sdk_10_0_1xx;
+    sdk_10_0-bin = dotnet10bin.sdk_10_0;  # sdk_10_0 always aliases to the latest feature band
   };
 }
