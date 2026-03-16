@@ -261,3 +261,5 @@ in rec {
 
 cp "$result" "$OUTPUT"
 echo "Updated $OUTPUT to runtime $major_minor_patch / sdk ${sdk_versions[0]}"
+
+nix fmt "$OUTPUT"
