@@ -231,18 +231,18 @@ in rec {
     $runtime_sources
   };"
 
-    local -A feature_bands
+    declare -A feature_bands
     unset latest_sdk_attr
 
     for sdk_version in "${sdk_versions[@]}"; do
-        local sdk_base_version=${sdk_version%-*}
-        local feature_band=${sdk_base_version:0:-2}xx
+        sdk_base_version=${sdk_version%-*}
+        feature_band=${sdk_base_version:0:-2}xx
         [[ ! ${feature_bands[$feature_band]+true} ]] || continue
         feature_bands[$feature_band]=$sdk_version
         sdk_files="$(release_files "$release_content" ".sdks[] | select(.version == \"$sdk_version\")")"
         sdk_sources="$(platform_sources "$sdk_files")"
-        local sdk_attrname=sdk_${feature_band//./_}
-        [[ -v latest_sdk_attr ]] || local latest_sdk_attr=$sdk_attrname
+        sdk_attrname=sdk_${feature_band//./_}
+        [[ -v latest_sdk_attr ]] || latest_sdk_attr=$sdk_attrname
 
         echo "
   $sdk_attrname = buildNetSdk {
