@@ -46,6 +46,10 @@
         config = {
           allowUnfree = true;
         };
+
+        overlays = [
+          (import ./overlays/dotnet.nix)
+        ];
       };
 
       lib = nixpkgs.lib;
