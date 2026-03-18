@@ -126,6 +126,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       maven \
   && rm -rf /var/lib/apt/lists/*
 
+# PowerShell — installed via Microsoft package repository
+RUN curl -fsSL https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb \
+        -o /tmp/packages-microsoft-prod.deb && \
+    dpkg -i /tmp/packages-microsoft-prod.deb && \
+    rm /tmp/packages-microsoft-prod.deb && \
+    apt-get update && apt-get install -y --no-install-recommends powershell && \
+    rm -rf /var/lib/apt/lists/*
+
 # [5] Sudo for the claude user — restricted to package management only.
 # The container starts as root for firewall init, then drops to the claude
 # user. This sudoers rule lets Claude install packages at runtime but
