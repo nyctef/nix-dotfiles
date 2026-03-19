@@ -341,6 +341,12 @@ cat > "$CLAUDE_RCFILE" <<RCEOF
 [ -f /etc/bash.bashrc ] && . /etc/bash.bashrc
 [ -f ~/.bashrc ] && . ~/.bashrc
 
+# Set the tmux window name via the standard \ekNAME\e\\ escape sequence.
+# This is the same mechanism shells use; tmux recognises it and disables
+# automatic-rename (which would otherwise show "docker"). The host script
+# re-enables automatic-rename after docker exits so the name reverts.
+printf '\033kclaude: %s\033\\\\' "\$PROJECT_NAME"
+
 # Launch Claude once at the first prompt (job control is active by then).
 # After Claude exits normally, exit the shell too (stops the container).
 # If Claude was suspended (Ctrl-Z), the prompt loop keeps running.
@@ -442,13 +448,7 @@ echo "  Claude binary: $CLAUDE_BINARY"
 echo "  Docker socket: $(if [[ "$MOUNT_DOCKER" == true ]]; then echo "mounted"; else echo "no (use --docker)"; fi)"
 echo ""
 
-# Tell tmux to stop auto-renaming this window (it would show "docker") and
-# set the window name to "claude" instead. This is a no-op outside tmux.
-if [[ -n "${TMUX:-}" ]]; then
-    tmux rename-window "claude: $(basename "$HOST_PROJECT_DIR")"
-fi
-
-exec docker run \
+docker run \
     --rm \
     -it \
     --name "$CONTAINER_NAME" \
@@ -470,6 +470,7 @@ exec docker run \
     \
     `# ---- Environment ----` \
     -e "HOME=/home/claude" \
+    -e "PROJECT_NAME=$(basename "$HOST_PROJECT_DIR")" \
     -e "TERM=${TERM:-xterm-256color}" \
     `# [1] Prevents Node.js OOM on large sessions / big codebases` \
     -e "NODE_OPTIONS=--max-old-space-size=4096" \
@@ -494,3 +495,12 @@ exec docker run \
     "$BUILT_IMAGE" \
     \
     /usr/local/bin/init-firewall.sh -- "${CLAUDE_ARGS[@]}"
+rc=$?
+
+# Re-enable tmux automatic-rename so the window name reverts to normal
+# (the \ek escape sequence above disabled it).
+if [[ -n "${TMUX:-}" ]]; then
+    tmux set-option -w automatic-rename on
+fi
+
+exit "$rc"
