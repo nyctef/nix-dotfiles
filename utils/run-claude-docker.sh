@@ -442,6 +442,12 @@ echo "  Claude binary: $CLAUDE_BINARY"
 echo "  Docker socket: $(if [[ "$MOUNT_DOCKER" == true ]]; then echo "mounted"; else echo "no (use --docker)"; fi)"
 echo ""
 
+# Tell tmux to stop auto-renaming this window (it would show "docker") and
+# set the window name to "claude" instead. This is a no-op outside tmux.
+if [[ -n "${TMUX:-}" ]]; then
+    tmux rename-window "claude: $(basename "$HOST_PROJECT_DIR")"
+fi
+
 exec docker run \
     --rm \
     -it \
