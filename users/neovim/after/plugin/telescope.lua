@@ -30,7 +30,7 @@ end, {})
 
 -- lsp pickers
 -- NOTE: use C-q to dump the results into the quickfix list for reference
-vim.keymap.set('n', 'gd', builtin.lsp_definitions, {})
+-- vim.keymap.set('n', 'gd', builtin.lsp_definitions, {}) -- try to use C-] instead as standard keybind
 vim.keymap.set('n', 'gi', builtin.lsp_implementations, {})
 vim.keymap.set('n', 'gr', builtin.lsp_references, {})
 vim.keymap.set('n', '<leader>ic', builtin.lsp_incoming_calls, {})
