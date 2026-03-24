@@ -25,16 +25,9 @@ fi
 DECLARATIVE_SETTINGS='
 {
   "extraKnownMarketplaces": {
-    "superpowers-marketplace": {
-      "source": {
-        "source": "github",
-        "repo": "obra/superpowers-marketplace"
-      }
-    }
   },
   "enabledPlugins": {
-    "csharp-lsp@claude-plugins-official": true,
-    "superpowers@superpowers-marketplace": true
+    "csharp-lsp@claude-plugins-official": true
   },
   "hooks": {
     "Notification": [
@@ -65,11 +58,14 @@ DECLARATIVE_SETTINGS='
 
 # Read current settings
 CURRENT_SETTINGS=$(cat "$SETTINGS_FILE")
+ORIGINAL_SETTINGS="$CURRENT_SETTINGS"
 
 # Clean up stale local-plugins references from previous configuration
 CURRENT_SETTINGS=$(echo "$CURRENT_SETTINGS" | jq '
   del(.extraKnownMarketplaces["local-plugins"]) |
-  del(.enabledPlugins["csharp-lsp@local-plugins"])
+  del(.extraKnownMarketplaces["superpowers-marketplace"]) |
+  del(.enabledPlugins["csharp-lsp@local-plugins"]) |
+  del(.enabledPlugins["superpowers@superpowers-marketplace"])
 ')
 
 # Clean up stale local plugin cache, installed_plugins, and known_marketplaces entries
@@ -98,7 +94,7 @@ MERGED_SETTINGS=$(echo "$CURRENT_SETTINGS" | jq --argjson declarative "$DECLARAT
 ')
 
 # Check if update is needed
-if [ "$CURRENT_SETTINGS" = "$MERGED_SETTINGS" ]; then
+if [ "$ORIGINAL_SETTINGS" = "$MERGED_SETTINGS" ]; then
     echo "settings.json is already up to date"
     exit 0
 fi
