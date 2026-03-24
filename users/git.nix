@@ -62,6 +62,30 @@
   # git hooks
   # note: setting core.hooksPath globally means per-repo hooks won't run
   # unless you explicitly chain them from these global hooks
+  xdg.configFile."git/hooks/commit-msg" = {
+    executable = true;
+    text = ''
+      #!/bin/bash
+      #
+      # commit-msg hook: rejects commit messages containing GitHub issue references
+      # like #123, which cause notification spam when commits get rebased
+      #
+
+      msg=$(cat "$1")
+
+      # Exclude git comment lines and Co-Authored-By lines
+      to_check=$(echo "$msg" | grep -v '^# ' | grep -vi 'co-authored-by')
+
+      if echo "$to_check" | grep -qE '(^|\s)#[0-9]+'; then
+          echo "ERROR: Commit message contains a GitHub issue reference."
+          echo "Please remove issue references (e.g. #123) from the commit message."
+          exit 1
+      fi
+
+      exit 0
+    '';
+  };
+
   xdg.configFile."git/hooks/pre-push" = {
     executable = true;
     text = ''
