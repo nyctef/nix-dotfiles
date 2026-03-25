@@ -389,8 +389,12 @@ OPTIONAL_MOUNTS=()
 
 add_mount() {
     local mode="$1" src="$2" dst="$3"
-    if [[ -e "$src" ]]; then
-        OPTIONAL_MOUNTS+=(-v "${src}:${dst}:${mode}")
+    # Resolve symlinks (e.g. Nix store symlinks) so the target exists in the
+    # container even when the symlink's intermediate path doesn't.
+    local resolved
+    resolved="$(readlink -f "$src" 2>/dev/null)" || resolved="$src"
+    if [[ -e "$resolved" ]]; then
+        OPTIONAL_MOUNTS+=(-v "${resolved}:${dst}:${mode}")
     fi
 }
 
@@ -401,10 +405,9 @@ add_mount rw "${HOME}/.claude.json" "/home/claude/.claude.json"
 # TODO: request a dedicated NUGET_TOKEN (packages-only, readonly) for use
 # inside the container, rather than mounting the host NuGet config which may
 # contain broader credentials.
-# NuGet config files — mounted individually with symlinks resolved, because
-# the host directory contains Nix store symlinks that don't exist in the container.
-add_mount ro "$(readlink -f "${HOME}/.config/NuGet/NuGet.Config")" "/home/claude/.config/NuGet/NuGet.Config"
-add_mount ro "$(readlink -f "${HOME}/.config/NuGet/config/rg.config")" "/home/claude/.config/NuGet/config/rg.config"
+# NuGet config files — symlinks are resolved by add_mount automatically.
+add_mount ro "${HOME}/.config/NuGet/NuGet.Config" "/home/claude/.config/NuGet/NuGet.Config"
+add_mount ro "${HOME}/.config/NuGet/config/rg.config" "/home/claude/.config/NuGet/config/rg.config"
 add_mount rw "${HOME}/.nuget/packages" "/home/claude/.nuget/packages"
 # Mount .dotfiles at both the container home and the host's absolute path.
 # The container home mount is for convenience; the host path mount is needed
@@ -417,6 +420,32 @@ fi
 add_mount ro "${HOME}/.gitconfig"   "/home/claude/.gitconfig"
 add_mount ro "${HOME}/.config/git/config" "/home/claude/.config/git/config"
 add_mount ro "${HOME}/.config/gh"   "/home/claude/.config/gh"
+
+# ---------- resolve symlinks in bind-mounted directories ----------
+# Nix/Home Manager manages dotfiles as symlinks into /nix/store, which doesn't
+# exist inside the container. For each directory we bind-mount, find symlinks
+# whose targets fall outside that directory (i.e. would be broken in the
+# container) and add individual file mounts with the resolved (dereferenced)
+# target. Docker file mounts layer on top of directory mounts, so the resolved
+# file is visible at the symlink's path inside the container.
+
+resolve_external_symlinks() {
+    local host_dir="$1" container_dir="$2" mode="$3"
+    local real_host_dir
+    real_host_dir="$(readlink -f "$host_dir")"
+    while IFS= read -r -d '' link; do
+        local target
+        target="$(readlink -f "$link")"
+        # Skip if the target is inside the same mount (it will resolve fine)
+        [[ "$target" == "$real_host_dir"/* ]] && continue
+        # Compute the relative path and map to the container mount point
+        local rel="${link#"$host_dir"/}"
+        OPTIONAL_MOUNTS+=(-v "${target}:${container_dir}/${rel}:${mode}")
+    done < <(find "$host_dir" -maxdepth 2 -type l -print0 2>/dev/null)
+}
+
+resolve_external_symlinks "${HOME}/.claude"   "/home/claude/.claude"   ro
+resolve_external_symlinks "${HOME}/.dotfiles" "/home/claude/.dotfiles" ro
 
 # Docker socket — only mounted when --docker is passed
 if [[ "$MOUNT_DOCKER" == true ]]; then
