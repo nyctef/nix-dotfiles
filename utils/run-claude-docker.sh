@@ -387,6 +387,27 @@ echo "$DOCKERFILE" | docker build --build-arg "DOCKER_GID=$DOCKER_GID" -t "$BUIL
 
 OPTIONAL_MOUNTS=()
 
+# Nix/Home Manager manages dotfiles as symlinks into /nix/store, which doesn't
+# exist inside the container. For each directory we bind-mount, find symlinks
+# whose targets fall outside that directory (i.e. would be broken in the
+# container) and add individual file mounts with the resolved (dereferenced)
+# target. Docker file mounts layer on top of directory mounts, so the resolved
+# file is visible at the symlink's path inside the container.
+resolve_external_symlinks() {
+    local host_dir="${1%/}" container_dir="${2%/}" mode="$3"
+    local real_host_dir
+    real_host_dir="$(readlink -f "$host_dir")"
+    while IFS= read -r -d '' link; do
+        local target
+        target="$(readlink -f "$link")"
+        # Skip if the target is inside the same mount (it will resolve fine)
+        [[ "$target" == "$real_host_dir"/* ]] && continue
+        # Compute the relative path and map to the container mount point
+        local rel="${link#"$host_dir"/}"
+        OPTIONAL_MOUNTS+=(-v "${target}:${container_dir}/${rel}:${mode}")
+    done < <(find "$host_dir" -maxdepth 2 -type l -print0 2>/dev/null)
+}
+
 add_mount() {
     local mode="$1" src="$2" dst="$3"
     # Resolve symlinks (e.g. Nix store symlinks) so the target exists in the
@@ -395,6 +416,13 @@ add_mount() {
     resolved="$(readlink -f "$src" 2>/dev/null)" || resolved="$src"
     if [[ -e "$resolved" ]]; then
         OPTIONAL_MOUNTS+=(-v "${resolved}:${dst}:${mode}")
+        # For directories, resolve any symlinks that point outside the mount
+        # (e.g. Nix store symlinks) so they're visible inside the container.
+        if [[ -d "$resolved" ]]; then
+            # Always ro: resolved targets are typically in /nix/store or
+            # similar read-only locations and can't be mounted rw.
+            resolve_external_symlinks "$src" "$dst" ro
+        fi
     fi
 }
 
@@ -418,34 +446,8 @@ if [[ "${HOME}/.dotfiles" != "/home/claude/.dotfiles" ]]; then
     add_mount ro "${HOME}/.dotfiles" "${HOME}/.dotfiles"
 fi
 add_mount ro "${HOME}/.gitconfig"   "/home/claude/.gitconfig"
-add_mount ro "${HOME}/.config/git/config" "/home/claude/.config/git/config"
+add_mount ro "${HOME}/.config/git/" "/home/claude/.config/git/"
 add_mount ro "${HOME}/.config/gh"   "/home/claude/.config/gh"
-
-# ---------- resolve symlinks in bind-mounted directories ----------
-# Nix/Home Manager manages dotfiles as symlinks into /nix/store, which doesn't
-# exist inside the container. For each directory we bind-mount, find symlinks
-# whose targets fall outside that directory (i.e. would be broken in the
-# container) and add individual file mounts with the resolved (dereferenced)
-# target. Docker file mounts layer on top of directory mounts, so the resolved
-# file is visible at the symlink's path inside the container.
-
-resolve_external_symlinks() {
-    local host_dir="$1" container_dir="$2" mode="$3"
-    local real_host_dir
-    real_host_dir="$(readlink -f "$host_dir")"
-    while IFS= read -r -d '' link; do
-        local target
-        target="$(readlink -f "$link")"
-        # Skip if the target is inside the same mount (it will resolve fine)
-        [[ "$target" == "$real_host_dir"/* ]] && continue
-        # Compute the relative path and map to the container mount point
-        local rel="${link#"$host_dir"/}"
-        OPTIONAL_MOUNTS+=(-v "${target}:${container_dir}/${rel}:${mode}")
-    done < <(find "$host_dir" -maxdepth 2 -type l -print0 2>/dev/null)
-}
-
-resolve_external_symlinks "${HOME}/.claude"   "/home/claude/.claude"   ro
-resolve_external_symlinks "${HOME}/.dotfiles" "/home/claude/.dotfiles" ro
 
 # Docker socket — only mounted when --docker is passed
 if [[ "$MOUNT_DOCKER" == true ]]; then
