@@ -181,6 +181,9 @@ RUN printf '%s\n' \
         maven.pkg.github.com \
         maven-central.storage-download.googleapis.com \
         red-gate.pkgs.visualstudio.com \
+        docs.oracle.com \
+        postgresql.org \
+        dev.mysql.com \
     > /etc/firewall-domains.txt
 
 # GitHub IP ranges (CIDR blocks from the GitHub API, not individual IPs)
