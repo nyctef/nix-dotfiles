@@ -5,7 +5,7 @@ set -euo pipefail
 # This avoids sandbox issues by giving Claude full access inside the container,
 # while the container itself provides isolation from the host.
 #
-# Usage: run-claude-docker.sh [--docker] [claude args...]
+# Usage: run-claude-docker.sh [--docker] [--worktree <name>] [claude args...]
 #   Run from any project directory — it mounts $PWD as the working dir.
 #
 # Options:
@@ -33,15 +33,29 @@ set -euo pipefail
 #                  isolation without needing the host socket at all
 #                - docker daemon --userns-remap — daemon-wide user namespace
 #                  remapping, limits what mounted host files are accessible
+#
+#   --worktree <name>
+#              Create (or reuse) a git worktree branching from the current
+#              HEAD and mount it as the container's primary working directory.
+#              The worktree is created at ../.<repo>-worktrees/<name> on the
+#              host. The main repo is mounted read-only (to prevent Claude
+#              from accidentally committing there). Both are mounted at
+#              their host absolute paths so git's worktree cross-references
+#              resolve correctly. The branch is named <name> (no prefix).
 
 # ---------- parse options ----------
 
 MOUNT_DOCKER=false
+WORKTREE_NAME=""
 CLAUDE_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --docker) MOUNT_DOCKER=true; shift ;;
-        *)        CLAUDE_ARGS+=("$1"); shift ;;
+        --worktree)
+            WORKTREE_NAME="$2"
+            shift 2
+            ;;
+        *)  CLAUDE_ARGS+=("$1"); shift ;;
     esac
 done
 
@@ -51,8 +65,29 @@ BUILT_IMAGE="claude-yolo"
 CONTAINER_NAME="claude-yolo-$$"
 DOCKER_SOCK="/var/run/docker.sock"
 
-HOST_PROJECT_DIR="$PWD"
+HOST_REPO_DIR="$PWD"
 CLAUDE_BINARY="$(readlink -f ~/.local/bin/claude)"
+
+# ---------- worktree setup ----------
+
+if [[ -n "$WORKTREE_NAME" ]]; then
+    REPO_BASENAME="$(basename "$HOST_REPO_DIR")"
+    WORKTREE_BASE="$(dirname "$HOST_REPO_DIR")/.$REPO_BASENAME-worktrees"
+    WORKTREE_DIR="$WORKTREE_BASE/$WORKTREE_NAME"
+
+    if [[ -d "$WORKTREE_DIR" ]]; then
+        echo "Reusing existing worktree: $WORKTREE_DIR"
+    else
+        mkdir -p "$WORKTREE_BASE"
+        CURRENT_HEAD="$(git -C "$HOST_REPO_DIR" rev-parse HEAD)"
+        echo "Creating worktree '$WORKTREE_NAME' from $(git -C "$HOST_REPO_DIR" rev-parse --short HEAD)..."
+        git -C "$HOST_REPO_DIR" worktree add -b "$WORKTREE_NAME" "$WORKTREE_DIR" "$CURRENT_HEAD"
+    fi
+
+    HOST_PROJECT_DIR="$WORKTREE_DIR"
+else
+    HOST_PROJECT_DIR="$HOST_REPO_DIR"
+fi
 
 # ---------- Dockerfile (inline) ----------
 # Kept in a variable for readability; piped to `docker build` below.
@@ -472,9 +507,30 @@ trap 'rm -f "$FIREWALL_TMP"' EXIT
 
 echo "Starting Claude Code in Docker (YOLO mode)..."
 echo "  Working dir  : $HOST_PROJECT_DIR"
+if [[ -n "$WORKTREE_NAME" ]]; then
+echo "  Worktree     : $WORKTREE_NAME (branch from $(git -C "$HOST_REPO_DIR" rev-parse --short HEAD))"
+echo "  Main repo    : $HOST_REPO_DIR (mounted ro)"
+fi
 echo "  Claude binary: $CLAUDE_BINARY"
 echo "  Docker socket: $(if [[ "$MOUNT_DOCKER" == true ]]; then echo "mounted"; else echo "no (use --docker)"; fi)"
 echo ""
+
+# In worktree mode, mount both the worktree and the main repo at their host
+# absolute paths so git's cross-references (worktree .git file → repo,
+# repo gitdir backlink → worktree) resolve correctly. The repo is mounted
+# read-only to prevent Claude from accidentally committing there.
+# Without worktree mode, mount the project at /home/claude/project as before.
+if [[ -n "$WORKTREE_NAME" ]]; then
+    PROJECT_MOUNTS=(
+        -v "$HOST_PROJECT_DIR:$HOST_PROJECT_DIR:rw"
+        -v "$HOST_REPO_DIR:$HOST_REPO_DIR:ro"
+        -w "$HOST_PROJECT_DIR"
+    )
+else
+    PROJECT_MOUNTS=(
+        -v "$HOST_PROJECT_DIR:/home/claude/project:rw"
+    )
+fi
 
 exec docker run \
     --rm \
@@ -486,7 +542,7 @@ exec docker run \
     --cap-add=NET_RAW \
     \
     `# ---- RW mounts ----` \
-    -v "$HOST_PROJECT_DIR:/home/claude/project:rw" \
+    "${PROJECT_MOUNTS[@]}" \
     -v "/tmp/claude:/tmp/claude:rw" \
     -v "$FIREWALL_TMP:/usr/local/bin/init-firewall.sh:ro" \
     \
