@@ -521,16 +521,11 @@ echo ""
 # read-only to prevent Claude from accidentally committing there.
 # Without worktree mode, mount the project at /home/claude/project as before.
 if [[ -n "$WORKTREE_NAME" ]]; then
-    # Git worktrees store mutable state (index, refs, HEAD, etc.) in the main
-    # repo's .git/worktrees/<name>/ directory. We mount the main repo read-only
-    # to prevent Claude from committing there, but this specific subdirectory
-    # must be writable or git operations in the worktree will fail with
-    # "Unable to create index.lock: Read-only file system".
-    WORKTREE_GIT_STATE="$HOST_REPO_DIR/.git/worktrees/$WORKTREE_NAME"
+    # The main repo must be rw because git shares its object store and refs
+    # across all worktrees — git add/commit write to .git/objects/ and .git/refs/.
     PROJECT_MOUNTS=(
         -v "$HOST_PROJECT_DIR:$HOST_PROJECT_DIR:rw"
-        -v "$HOST_REPO_DIR:$HOST_REPO_DIR:ro"
-        -v "$WORKTREE_GIT_STATE:$WORKTREE_GIT_STATE:rw"
+        -v "$HOST_REPO_DIR:$HOST_REPO_DIR:rw"
         -w "$HOST_PROJECT_DIR"
     )
 else
