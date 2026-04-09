@@ -161,6 +161,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       maven \
   && rm -rf /var/lib/apt/lists/*
 
+# Jujutsu (jj) — modern VCS, installed from GitHub releases
+RUN JJ_VERSION="0.40.0" && \
+    curl -fsSL "https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}/jj-v${JJ_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+        -o /tmp/jj.tar.gz && \
+    tar -xzf /tmp/jj.tar.gz -C /usr/local/bin ./jj && \
+    chmod +x /usr/local/bin/jj && \
+    rm /tmp/jj.tar.gz
+
 # PowerShell — installed via Microsoft package repository
 RUN curl -fsSL https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb \
         -o /tmp/packages-microsoft-prod.deb && \
@@ -180,9 +188,9 @@ RUN echo "claude ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/dp
 # NuGet reads config from ~/.nuget/NuGet/, which on the host is a symlink to
 # ~/.config/NuGet/. Replicate that layout so bind-mounted configs at
 # ~/.config/NuGet/ are found by NuGet at its expected path.
-RUN mkdir -p /home/claude/.nuget /home/claude/.config/NuGet && \
+RUN mkdir -p /home/claude/.nuget /home/claude/.config/NuGet /home/claude/.local && \
     ln -s /home/claude/.config/NuGet /home/claude/.nuget/NuGet && \
-    chown -R claude:claude /home/claude/.nuget /home/claude/.config/NuGet
+    chown -R claude:claude /home/claude/.nuget /home/claude/.config /home/claude/.local
 
 # ---- Firewall: domain allowlist + build-time IP warm-start ----
 # /etc/firewall-domains.txt is the single source of truth for allowed domains.
