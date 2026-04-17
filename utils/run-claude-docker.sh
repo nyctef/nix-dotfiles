@@ -97,6 +97,32 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Minimal first pass: install ca-certificates so apt can trust the HTTPS
+# third-party repos we add below. Everything else is deferred to the single
+# big install after the repos are registered.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
+
+# Docker CLI repo. ADD is executed by the Docker builder (not inside the
+# image), so it doesn't need curl or ca-certificates in the image.
+ADD --chmod=0644 https://download.docker.com/linux/ubuntu/gpg /etc/apt/keyrings/docker.asc
+RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+      https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+      > /etc/apt/sources.list.d/docker.list
+
+# Microsoft repo (for PowerShell). We register the key + list by hand rather
+# than via the packages-microsoft-prod .deb, because that deb depends on
+# ca-certificates and the dpkg-level dependency check rejects installing
+# it standalone.
+ADD --chmod=0644 https://packages.microsoft.com/keys/microsoft.asc /etc/apt/keyrings/microsoft.asc
+RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/microsoft.asc] \
+      https://packages.microsoft.com/ubuntu/24.04/prod $(. /etc/os-release && echo "$VERSION_CODENAME") main" \
+      > /etc/apt/sources.list.d/microsoft-prod.list
+
+# One big install covering everything — including docker-ce-cli and
+# powershell from the third-party repos registered just above. This image
+# is only used locally, so we intentionally leave /var/lib/apt/lists/* in
+# place: keeping the cache lets Claude apt-get install extras at runtime
+# without waiting for a re-fetch.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         ca-certificates \
@@ -124,18 +150,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         dnsutils \
         aggregate \
         dnsmasq \
-    && rm -rf /var/lib/apt/lists/*
-
-# Docker CLI — only the client, no daemon. Talks to the host daemon via the
-# bind-mounted socket. Needed for tests that spin up on-demand containers
-# (e.g. test databases).
-RUN install -m 0755 -d /etc/apt/keyrings && \
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
-      https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
-      > /etc/apt/sources.list.d/docker.list && \
-    apt-get update && apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin && \
-    rm -rf /var/lib/apt/lists/*
+        # Docker CLI — only the client, no daemon. Talks to the host daemon
+        # via the bind-mounted socket. Needed for tests that spin up on-demand
+        # containers (e.g. test databases).
+        docker-ce-cli \
+        docker-compose-plugin \
+        # Java + Maven
+        default-jdk-headless \
+        maven \
+        # PowerShell (from the Microsoft repo added above)
+        powershell
 
 # Non-root user matching typical host UID (1000).
 # The DOCKER_GID arg is set at build time from the host socket's group so
@@ -156,11 +180,6 @@ RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh &&
     rm /tmp/dotnet-install.sh
 ENV DOTNET_ROOT=/usr/share/dotnet
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      default-jdk-headless \
-      maven \
-  && rm -rf /var/lib/apt/lists/*
-
 # Jujutsu (jj) — modern VCS, installed from GitHub releases
 RUN JJ_VERSION="0.40.0" && \
     curl -fsSL "https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}/jj-v${JJ_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
@@ -168,14 +187,6 @@ RUN JJ_VERSION="0.40.0" && \
     tar -xzf /tmp/jj.tar.gz -C /usr/local/bin ./jj && \
     chmod +x /usr/local/bin/jj && \
     rm /tmp/jj.tar.gz
-
-# PowerShell — installed via Microsoft package repository
-RUN curl -fsSL https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb \
-        -o /tmp/packages-microsoft-prod.deb && \
-    dpkg -i /tmp/packages-microsoft-prod.deb && \
-    rm /tmp/packages-microsoft-prod.deb && \
-    apt-get update && apt-get install -y --no-install-recommends powershell && \
-    rm -rf /var/lib/apt/lists/*
 
 # [5] Sudo for the claude user — restricted to package management only.
 # The container starts as root for firewall init, then drops to the claude
