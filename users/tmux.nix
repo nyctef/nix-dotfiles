@@ -16,6 +16,7 @@
       # Tc: Enable RGB/true color support (tmux extension)
       # https://github.com/tmux/tmux/wiki/FAQ#how-do-i-use-rgb-colour
       set -as terminal-overrides ",xterm-256color:Tc"
+      set -as terminal-features ',*:hyperlinks'
 
       # make splits open in the current folder
       bind '"' split-window -v -c "#{pane_current_path}"
