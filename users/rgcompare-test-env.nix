@@ -51,4 +51,6 @@ in
   home.packages = [
     flyway
   ];
+
+  home.file.".local/flyway".source = "${flyway}/lib/flyway";
 }
