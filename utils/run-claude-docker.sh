@@ -190,6 +190,10 @@ RUN curl -fsSL "https://download.red-gate.com/maven/release/com/redgate/flyway/f
         -o /tmp/flyway.tar.gz && \
     mkdir -p /usr/share/flyway && \
     tar -xzf /tmp/flyway.tar.gz -C /usr/share/flyway --strip-components=1 && \
+    # Tarball preserves owner-only execute (uid 1001) — make the launcher
+    # and bundled JRE binaries executable for everyone in the image.
+    chmod -R a+rX /usr/share/flyway && \
+    chmod a+x /usr/share/flyway/flyway /usr/share/flyway/jre/bin/* && \
     ln -s /usr/share/flyway/flyway /usr/local/bin/flyway && \
     rm /tmp/flyway.tar.gz
 
