@@ -251,6 +251,8 @@ RUN printf '%s\n' \
         docs.oracle.com \
         postgresql.org \
         dev.mysql.com \
+        docs.databricks.com \
+        azuredatabricks.net \
     > /etc/firewall-domains.txt
 
 # GitHub IP ranges (CIDR blocks from the GitHub API, not individual IPs)
