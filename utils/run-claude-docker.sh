@@ -182,6 +182,17 @@ RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh &&
     rm /tmp/dotnet-install.sh
 ENV DOTNET_ROOT=/usr/share/dotnet
 
+# Flyway CLI — version pinned to the host's installed version via build arg,
+# which also busts the cache when the host updates flyway. Uses the existing
+# JDK installed above.
+ARG FLYWAY_VERSION
+RUN curl -fsSL "https://download.red-gate.com/maven/release/com/redgate/flyway/flyway-commandline/${FLYWAY_VERSION}/flyway-commandline-${FLYWAY_VERSION}-linux-x64.tar.gz" \
+        -o /tmp/flyway.tar.gz && \
+    mkdir -p /usr/share/flyway && \
+    tar -xzf /tmp/flyway.tar.gz -C /usr/share/flyway --strip-components=1 && \
+    ln -s /usr/share/flyway/flyway /usr/local/bin/flyway && \
+    rm /tmp/flyway.tar.gz
+
 # Jujutsu (jj) — modern VCS, installed from GitHub releases
 RUN JJ_VERSION="0.40.0" && \
     curl -fsSL "https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}/jj-v${JJ_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
@@ -440,11 +451,13 @@ fi
 DOCKER_GID="$(stat -c '%g' "$DOCKER_SOCK" 2>/dev/null || echo 965)"
 
 DOTNET_SDK_VERSION="$(dotnet --version)"
+FLYWAY_VERSION="$(flyway version -outputType=json 2>/dev/null | jq -r '.version')"
 
 echo "Building Docker image '$BUILT_IMAGE'..."
 echo "$DOCKERFILE" | docker build \
     --build-arg "DOCKER_GID=$DOCKER_GID" \
     --build-arg "DOTNET_SDK_VERSION=$DOTNET_SDK_VERSION" \
+    --build-arg "FLYWAY_VERSION=$FLYWAY_VERSION" \
     -t "$BUILT_IMAGE" -
 
 # ---------- optional mounts (skip if not present on host) ----------
