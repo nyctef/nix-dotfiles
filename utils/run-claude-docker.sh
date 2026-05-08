@@ -173,9 +173,11 @@ RUN userdel -r ubuntu 2>/dev/null || true && \
     (groupadd -f -g ${DOCKER_GID} docker || true) && \
     usermod -aG docker claude
 
-# .NET 10 SDK — needed for building/testing the project
+# .NET SDK — version pinned to the host's installed version via build arg,
+# which also busts the cache when the host updates dotnet.
+ARG DOTNET_SDK_VERSION
 RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh && \
-    bash /tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet && \
+    bash /tmp/dotnet-install.sh --version "${DOTNET_SDK_VERSION}" --install-dir /usr/share/dotnet && \
     ln -s /usr/share/dotnet/dotnet /usr/local/bin/dotnet && \
     rm /tmp/dotnet-install.sh
 ENV DOTNET_ROOT=/usr/share/dotnet
@@ -437,8 +439,13 @@ fi
 # Detect the GID of the host docker socket so the container user can access it
 DOCKER_GID="$(stat -c '%g' "$DOCKER_SOCK" 2>/dev/null || echo 965)"
 
+DOTNET_SDK_VERSION="$(dotnet --version)"
+
 echo "Building Docker image '$BUILT_IMAGE'..."
-echo "$DOCKERFILE" | docker build --build-arg "DOCKER_GID=$DOCKER_GID" -t "$BUILT_IMAGE" -
+echo "$DOCKERFILE" | docker build \
+    --build-arg "DOCKER_GID=$DOCKER_GID" \
+    --build-arg "DOTNET_SDK_VERSION=$DOTNET_SDK_VERSION" \
+    -t "$BUILT_IMAGE" -
 
 # ---------- optional mounts (skip if not present on host) ----------
 
