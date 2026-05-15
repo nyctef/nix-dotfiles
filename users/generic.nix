@@ -16,6 +16,7 @@ let
   watch-pr = import ../utils/watch-pr.nix { inherit pkgs; };
   claude-code-transcripts = import ../utils/claude-code-transcripts.nix { inherit pkgs; };
   tk = import ../utils/ticket.nix { inherit pkgs; ticket-src = inputs.ticket; };
+  cleanup-worktrees = import ../utils/cleanup-worktrees.nix { inherit pkgs; };
 in
 {
 
@@ -107,6 +108,7 @@ in
       watch-pr
       claude-code-transcripts
       tk
+      cleanup-worktrees
 
       python315
     ];
