@@ -1,2 +1,5 @@
 # nix build result symlinks
 result
+
+# python bytecode cache
+__pycache__/
