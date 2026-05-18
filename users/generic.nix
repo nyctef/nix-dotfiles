@@ -17,6 +17,7 @@ let
   claude-code-transcripts = import ../utils/claude-code-transcripts.nix { inherit pkgs; };
   tk = import ../utils/ticket.nix { inherit pkgs; ticket-src = inputs.ticket; };
   cleanup-worktrees = import ../utils/cleanup-worktrees.nix { inherit pkgs; };
+  recent-claude-sessions = import ../utils/recent-claude-sessions.nix { inherit pkgs; };
 in
 {
 
@@ -109,6 +110,7 @@ in
       claude-code-transcripts
       tk
       cleanup-worktrees
+      recent-claude-sessions
 
       python315
     ];
