@@ -109,6 +109,14 @@ RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/doc
       https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
       > /etc/apt/sources.list.d/docker.list
 
+# GitHub CLI repo. Ubuntu's archive ships an old gh (e.g. 2.45) that still
+# queries the deprecated Projects (classic) GraphQL field, which now errors
+# out on `gh pr edit` etc. The official cli.github.com repo tracks upstream.
+ADD --chmod=0644 https://cli.github.com/packages/githubcli-archive-keyring.gpg /etc/apt/keyrings/githubcli.gpg
+RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli.gpg] \
+      https://cli.github.com/packages stable main" \
+      > /etc/apt/sources.list.d/github-cli.list
+
 # Microsoft repo (for PowerShell). We register the key + list by hand rather
 # than via the packages-microsoft-prod .deb, because that deb depends on
 # ca-certificates and the dpkg-level dependency check rejects installing
@@ -243,6 +251,7 @@ RUN printf '%s\n' \
         download.docker.com \
         archive.ubuntu.com \
         security.ubuntu.com \
+        cli.github.com \
         api.nuget.org \
         azureedge.net \
         dotnetcli.azureedge.net \
