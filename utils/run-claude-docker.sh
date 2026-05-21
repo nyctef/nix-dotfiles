@@ -79,9 +79,14 @@ if [[ -n "$WORKTREE_NAME" ]]; then
         echo "Reusing existing worktree: $WORKTREE_DIR"
     else
         mkdir -p "$WORKTREE_BASE"
-        CURRENT_HEAD="$(git -C "$HOST_REPO_DIR" rev-parse HEAD)"
-        echo "Creating worktree '$WORKTREE_NAME' from $(git -C "$HOST_REPO_DIR" rev-parse --short HEAD)..."
-        git -C "$HOST_REPO_DIR" worktree add -b "$WORKTREE_NAME" "$WORKTREE_DIR" "$CURRENT_HEAD"
+        if git -C "$HOST_REPO_DIR" show-ref --verify --quiet "refs/heads/$WORKTREE_NAME"; then
+            echo "Creating worktree '$WORKTREE_NAME' from existing branch..."
+            git -C "$HOST_REPO_DIR" worktree add "$WORKTREE_DIR" "$WORKTREE_NAME"
+        else
+            CURRENT_HEAD="$(git -C "$HOST_REPO_DIR" rev-parse HEAD)"
+            echo "Creating worktree '$WORKTREE_NAME' from $(git -C "$HOST_REPO_DIR" rev-parse --short HEAD)..."
+            git -C "$HOST_REPO_DIR" worktree add -b "$WORKTREE_NAME" "$WORKTREE_DIR" "$CURRENT_HEAD"
+        fi
     fi
 
     HOST_PROJECT_DIR="$WORKTREE_DIR"
