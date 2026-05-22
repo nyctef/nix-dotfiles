@@ -170,7 +170,7 @@ def render_entry(obj, verbose=False):
     return None
 
 
-def render_tail(path, n=TAIL_ENTRIES, verbose=False):
+def render_tail(path, n=TAIL_ENTRIES, verbose=False, full=False):
     rendered = []
     try:
         text = path.read_text(errors="replace")
@@ -186,6 +186,8 @@ def render_tail(path, n=TAIL_ENTRIES, verbose=False):
         r = render_entry(obj, verbose=verbose)
         if r:
             rendered.append(r)
+    if full:
+        return "\n\n".join(rendered) if rendered else "(no renderable entries)"
     tail = rendered[-n:]
     tail.reverse()
     return "\n\n".join(tail) if tail else "(no renderable entries)"
@@ -197,6 +199,11 @@ def main():
         "-v", "--verbose",
         action="store_true",
         help="include user messages, tool_use, and tool_result (default: assistant text + thinking only)",
+    )
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help=f"dump entire session log oldest-first (default: last {TAIL_ENTRIES} entries, newest-first)",
     )
     args = parser.parse_args()
 
@@ -231,7 +238,7 @@ def main():
         sys.exit(1)
     selected = Path(line.split("\t", 1)[0])
 
-    output = f"# {selected}\n\n{render_tail(selected, verbose=args.verbose)}\n"
+    output = f"# {selected}\n\n{render_tail(selected, verbose=args.verbose, full=args.full)}\n"
     pager = subprocess.run(["less", "-FRX"], input=output, text=True)
     sys.exit(pager.returncode)
 
