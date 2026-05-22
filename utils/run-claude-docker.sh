@@ -450,6 +450,8 @@ PROMPT_COMMAND=_launch_claude
 RCEOF
 chown claude:claude "$CLAUDE_RCFILE"
 
+export PATH=$PATH:/home/claude/.local/bin
+
 exec runuser -u claude -- bash --rcfile "$CLAUDE_RCFILE" -i
 FWEOF
 
@@ -611,7 +613,7 @@ exec docker run \
     "${OPTIONAL_MOUNTS[@]}" \
     \
     `# ---- Claude binary itself ----` \
-    -v "$CLAUDE_BINARY:/usr/local/bin/claude:ro" \
+    -v "$CLAUDE_BINARY:/home/claude/.local/bin/claude:ro" \
     \
     `# ---- Environment ----` \
     -e "HOME=/home/claude" \
