@@ -12,8 +12,8 @@ Registers a `web_search` tool using the [Brave Search API](https://api.search.br
 
 2. Encrypt it with agenix:
    ```sh
-   cd ~/.dotfiles
-   echo -n "YOUR_API_KEY_HERE" | agenix -e secrets/brave-search-api-key.age
+   cd ~/.dotfiles/secrets
+   echo -n "YOUR_API_KEY_HERE" | agenix -e brave-search-api-key.age
    ```
 
 3. Rebuild:
