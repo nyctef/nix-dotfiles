@@ -14,4 +14,5 @@ in
 {
   "hello.age".publicKeys = all;
   "rg-packaging-read.age".publicKeys = all;
+  "brave-search-api-key.age".publicKeys = all;
 }

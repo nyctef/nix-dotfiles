@@ -30,6 +30,7 @@ in
     ./dotnet.nix
     ./rgcompare-test-env.nix
     ./claude-code.nix
+    ./pi
 
     inputs.agenix.homeManagerModules.default
   ];
