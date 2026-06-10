@@ -467,6 +467,16 @@ if [[ ! -x "$CLAUDE_BINARY" ]]; then
     exit 1
 fi
 
+if ! command -v dotnet &>/dev/null; then
+    echo "ERROR: dotnet is not installed or not in PATH" >&2
+    exit 1
+fi
+
+if ! command -v flyway &>/dev/null; then
+    echo "ERROR: flyway is not installed or not in PATH" >&2
+    exit 1
+fi
+
 # ---------- build image if needed ----------
 
 # Detect the GID of the host docker socket so the container user can access it
