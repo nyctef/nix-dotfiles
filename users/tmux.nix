@@ -34,6 +34,9 @@
 
       # make sure nvim can receive focus events for automatically refreshing file contents etc
       set -g focus-events on
+
+      # allow modified Enter/key combos (e.g. shift+enter) to pass through
+      set -g extended-keys on
     '';
   };
 }
