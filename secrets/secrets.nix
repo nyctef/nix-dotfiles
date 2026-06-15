@@ -16,4 +16,5 @@ in
   "rg-packaging-read.age".publicKeys = all;
   "brave-search-api-key.age".publicKeys = all;
   "claude-code-oauth-token.age".publicKeys = all;
+  "claude-api-token.age".publicKeys = all;
 }
