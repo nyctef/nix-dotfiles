@@ -8,6 +8,19 @@
 
 let
   run-claude-docker = import ../utils/run-claude-docker.nix { inherit pkgs; };
+  waitcat = import ../utils/waitcat.nix { inherit pkgs; };
+
+  # A dedicated, long-lived OAuth token for Claude running inside the docker
+  # wrapper (run-claude-docker.sh). Produced once on the host with
+  #   `claude setup-token`
+  # then stored encrypted with
+  #   `cd ~/.dotfiles && agenix -e secrets/claude-code-oauth-token.age`
+  # Guarded by pathExists so the config still evaluates before the secret is
+  # created. Exposed as CLAUDE_DOCKER_OAUTH_TOKEN (NOT CLAUDE_CODE_OAUTH_TOKEN)
+  # so the host's own Claude keeps using its full-scope interactive login; the
+  # docker wrapper maps this var to CLAUDE_CODE_OAUTH_TOKEN inside the container.
+  oauthTokenSecret = ../secrets/claude-code-oauth-token.age;
+  hasOauthToken = builtins.pathExists oauthTokenSecret;
 
   # Extract seccomp filter files from the @anthropic-ai/sandbox-runtime npm package.
   # Claude Code's sandbox uses seccomp (Linux kernel syscall filtering) to block
@@ -45,6 +58,16 @@ in
 {
   config = {
     home.sessionPath = [ "$HOME/.local/bin" ]; # `claude install` puts the cli here
+
+    # Dedicated container OAuth token (see the `let` block above). No-op until
+    # secrets/claude-code-oauth-token.age exists.
+    age.secrets = lib.optionalAttrs hasOauthToken {
+      claudeCodeOauthToken.file = oauthTokenSecret;
+    };
+    home.sessionVariables = lib.optionalAttrs hasOauthToken {
+      # waitcat (not cat) because the shell may start before agenix has decrypted.
+      CLAUDE_DOCKER_OAUTH_TOKEN = ''$(${waitcat}/bin/waitcat ${config.age.secrets.claudeCodeOauthToken.path})'';
+    };
 
     home.packages = with pkgs; [
       bubblewrap

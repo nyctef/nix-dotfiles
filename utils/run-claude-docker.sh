@@ -42,6 +42,14 @@ set -euo pipefail
 #              from accidentally committing there). Both are mounted at
 #              their host absolute paths so git's worktree cross-references
 #              resolve correctly. The branch is named <name> (no prefix).
+#
+# Environment:
+#   CLAUDE_DOCKER_OAUTH_TOKEN
+#              A long-lived OAuth token from `claude setup-token`. If set, it is
+#              passed into the container as CLAUDE_CODE_OAUTH_TOKEN and the host's
+#              ~/.claude/.credentials.json is masked, so the container uses this
+#              token instead of the host's credentials. Unset → shares the host
+#              credentials as before.
 
 # ---------- parse options ----------
 
@@ -557,12 +565,27 @@ if [[ "$MOUNT_DOCKER" == true ]]; then
     fi
 fi
 
+# ---------- container-only OAuth token ----------
+# If CLAUDE_DOCKER_OAUTH_TOKEN is set on the host, pass it into the container as
+# CLAUDE_CODE_OAUTH_TOKEN and mask the host's ~/.claude/.credentials.json with a
+# throwaway file so the container uses this token instead of the host's creds.
+EXTRA_ENV=()
+CRED_MASK=""
+if [[ -n "${CLAUDE_DOCKER_OAUTH_TOKEN:-}" ]]; then
+    EXTRA_ENV+=(-e "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_DOCKER_OAUTH_TOKEN}")
+    CRED_MASK="$(mktemp)"
+    # Layer a file mount on top of the ~/.claude directory mount so the
+    # container sees an empty, throwaway .credentials.json instead of the
+    # host's real (rotating) one. Writes land in the temp file, not the host.
+    OPTIONAL_MOUNTS+=(-v "${CRED_MASK}:/home/claude/.claude/.credentials.json:rw")
+fi
+
 # ---------- inject firewall script into /tmp so the container can run it ----------
 
 FIREWALL_TMP="$(mktemp)"
 echo "$FIREWALL_SCRIPT" > "$FIREWALL_TMP"
 chmod +x "$FIREWALL_TMP"
-trap 'rm -f "$FIREWALL_TMP"' EXIT
+trap 'rm -f "$FIREWALL_TMP" ${CRED_MASK:+"$CRED_MASK"}' EXIT
 
 # ---------- run ----------
 
@@ -627,6 +650,8 @@ exec docker run \
     `# ports, which aren't reachable at localhost from inside a sibling container.` \
     `# The bridge gateway IP routes to the host's published ports.` \
     -e "DOCKER_HOST_ADDRESS=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')" \
+    `# Container-only OAuth token (set iff CLAUDE_DOCKER_OAUTH_TOKEN is present)` \
+    "${EXTRA_ENV[@]}" \
     \
     `# ---- Network: bridge (default) so the firewall's iptables rules are` \
     `#        scoped to the container's own network namespace. Do NOT use`  \
