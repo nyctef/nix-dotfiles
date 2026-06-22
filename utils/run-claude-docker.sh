@@ -85,6 +85,20 @@ if [[ -n "$WORKTREE_NAME" ]]; then
 
     if [[ -d "$WORKTREE_DIR" ]]; then
         echo "Reusing existing worktree: $WORKTREE_DIR"
+
+        # The branch can drift if it was moved from outside the worktree
+        # (e.g. `git branch -f` in the main repo), leaving the worktree
+        # detached or pinned to a stale commit. Unconditionally re-sync the
+        # worktree to the branch tip, but refuse to clobber uncommitted work
+        # (stricter than `git switch`'s own safety check, which silently
+        # carries non-conflicting dirty changes across the switch).
+        if [[ -n "$(git -C "$WORKTREE_DIR" status --porcelain)" ]]; then
+            echo "ERROR: worktree at $WORKTREE_DIR has uncommitted changes; refusing to reset." >&2
+            echo "       Commit, stash, or discard them, then re-run." >&2
+            exit 1
+        fi
+        BRANCH_SHA="$(git -C "$HOST_REPO_DIR" rev-parse "refs/heads/$WORKTREE_NAME")"
+        git -C "$WORKTREE_DIR" switch -C "$WORKTREE_NAME" "$BRANCH_SHA"
     else
         mkdir -p "$WORKTREE_BASE"
         if git -C "$HOST_REPO_DIR" show-ref --verify --quiet "refs/heads/$WORKTREE_NAME"; then
