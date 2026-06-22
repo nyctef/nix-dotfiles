@@ -106,6 +106,13 @@
           modules = [
             ./system/configuration.nix
             ./system/wsl.nix
+            # Vendored sysbox runtime (see system/sysbox-nix/). The module is a
+            # function-of-flake; we apply it with a minimal stub that just
+            # supplies the package built from our own nixpkgs (Option B —
+            # direct import, no extra flake input). See system/sysbox-nix/README.md.
+            (import ./system/sysbox-nix/modules/sysbox.nix {
+              packages.${system}.sysbox = pkgs.callPackage ./system/sysbox-nix/pkgs { };
+            })
             {
               virtualisation.docker.enable = true;
               virtualisation.docker.daemon.settings = {
@@ -117,6 +124,19 @@
               users.users.nixos.extraGroups = [ "docker" ];
 
               networking.hostName = "tachikoma";
+
+              # Register sysbox-runc as a Docker runtime:
+              #   docker run --runtime=sysbox-runc ...
+              virtualisation.sysbox.enable = true;
+
+              # The sysbox module raises these inotify limits with mkDefault,
+              # but nixpkgs also defaults them (to a lower value) at the same
+              # priority — a tie Nix refuses to resolve. Force sysbox's value.
+              boot.kernel.sysctl = {
+                "fs.inotify.max_user_watches" = lib.mkForce 1048576;
+                "fs.inotify.max_user_instances" = lib.mkForce 1048576;
+                "kernel.pid_max" = lib.mkForce 4194304;
+              };
             }
           ];
 

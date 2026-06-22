@@ -20,13 +20,32 @@ reviewed copy keeps it tamper-evident and removes surprise upstream changes.
   (`nestybox/sysbox` @ `v0.6.7`) is Apache-2.0 and is fetched at build time
   from the official repo via a pinned `fetchFromGitHub` hash, not vendored here.
 
-The files under `upstream/` are copied **verbatim** from the commit above.
+The `.nix` files (`modules/sysbox.nix`, `pkgs/*.nix`) and `LICENSE` are copied
+**byte-for-byte** from the commit above.
 
 ## Local changes
 
-None yet — `upstream/` is an unmodified copy. Record any divergence here
-(file + reason) and keep the copy otherwise byte-for-byte upstream so the next
-re-sync is a clean diff.
+We integrate via direct import (Option B — no extra flake input), so the
+upstream flake plumbing is unused. Relative to upstream:
+
+- **Removed** (unused under direct import): `flake.nix`, `flake.lock`,
+  `.gitignore`, and upstream's own `README.md`.
+- **Flattened** `upstream/` → this directory (so paths are
+  `system/sysbox-nix/{modules,pkgs}/…`).
+- The `.nix` file *contents* are unmodified. The module is a
+  function-of-flake; `flake.nix` (tachikoma) applies it with a stub
+  `{ packages.<system>.sysbox = …; }` that supplies a package built from our
+  own nixpkgs via `callPackage ./pkgs`.
+
+Keep the `.nix` files byte-for-byte upstream so re-syncs stay a clean diff.
+
+### Integration note (in `flake.nix`, not here)
+
+The module raises three sysctls (`fs.inotify.max_user_watches`,
+`fs.inotify.max_user_instances`, `kernel.pid_max`) with `mkDefault`, but
+nixpkgs also defaults them at the same priority — an unresolvable tie. The
+`tachikoma` config overrides them with `lib.mkForce` to take sysbox's values.
+If a re-sync changes the module's sysctl set, revisit those overrides.
 
 ## Why it suits this host (tachikoma, NixOS + WSL2)
 
