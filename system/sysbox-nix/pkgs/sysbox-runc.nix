@@ -16,6 +16,8 @@ buildGoModule {
   vendorHash = "sha256-e2RxH1XPyaTpwMmxnBSPwd8+qWjZD92BEk58kfMlFPU=";
   proxyVendor = false;
 
+  patches = [ ./nsexec-oom-nonfatal.patch ];
+
   nativeBuildInputs = [ pkg-config ] ++ common.protoNativeBuildInputs;
   buildInputs = [ libseccomp ];
 
