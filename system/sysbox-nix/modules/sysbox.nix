@@ -83,8 +83,8 @@ in
       partOf = [ "sysbox.service" ];
       after = [ "sysbox-mgr.service" ];
       unitConfig.StartLimitIntervalSec = 0;
-      # sysbox-fs shells out to fusermount to mount its FUSE filesystem under /var/lib/sysboxfs.
-      path = [ pkgs.fuse ];
+      # sysbox-fs shells out to fusermount3 to mount its FUSE filesystem under /var/lib/sysboxfs.
+      path = [ pkgs.fuse3 ];
       serviceConfig = {
         Type = "notify";
         ExecStart = "${cfg.package}/bin/sysbox-fs";
