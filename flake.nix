@@ -115,19 +115,17 @@
             })
             {
               virtualisation.docker.enable = true;
+              # Pin Docker to the 25.x line. sysbox-runc 0.6.7 doesn't support
+              # Docker 29.5+ (which injects a "time" namespace by default and
+              # changed stdio/console fd handling) — containers fail to start
+              # with sysbox-runc. 25.0.x predates both and is within sysbox's
+              # supported range. Revisit once upstream sysbox supports 29.x.
+              virtualisation.docker.package = pkgs.docker_25;
               virtualisation.docker.daemon.settings = {
                 hosts = [
                   "unix:///var/run/docker.sock"
                   "tcp://0.0.0.0:2375"
                 ];
-                features = {
-                  # Docker 29.5.0+ gives each container a private "time"
-                  # namespace by default (virtualizes CLOCK_MONOTONIC/BOOTTIME,
-                  # not wall-clock). sysbox-runc 0.6.7 doesn't support it and
-                  # fails to start containers, so disable it daemon-wide.
-                  # Remove once upstream sysbox handles the namespace.
-                  "time-namespaces" = false;
-                };
               };
               users.users.nixos.extraGroups = [ "docker" ];
 

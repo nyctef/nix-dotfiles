@@ -62,20 +62,30 @@ reintroduces port/path remapping. Sysbox collapses those layers.
 - **Activated** — `nixos-rebuild switch` applied; `sysbox-mgr`/`sysbox-fs`/`sysbox`
   services up, `sysbox-runc` runtime registered. subuid/subgid sorted itself out
   (no declarative `users.users.sysbox` needed).
-- **Hit + fixed the Docker 29.5 `time` namespace incompat.** Smoke test
-  (`docker run --runtime=sysbox-runc docker:dind`) failed with
-  `OCI runtime create failed: namespace {"time" ""} does not exist`. Cause:
-  Docker 29.5.0 injects a private `time` namespace into every container's OCI
-  spec by default (moby/moby#52326); sysbox-runc ≤0.7.0 (incl. our 0.6.7) doesn't
-  support that namespace type (nestybox/sysbox#1011). Fix: set
-  `virtualisation.docker.daemon.settings.features."time-namespaces" = false`
-  (daemon-wide; reverts to pre-29.5 behaviour; benign — `time` ns only
-  virtualizes CLOCK_MONOTONIC/BOOTTIME, nothing here depends on it). **TEMPORARY**
-  — drop once upstream sysbox handles the namespace.
+- **Diagnosed sysbox 0.6.7 ✗ Docker 29.5 version skew → pinned Docker to 25.x.**
+  Smoke test on Docker 29.5.1 failed in two stages:
+  1. `OCI runtime create failed: namespace {"time" ""} does not exist` — Docker
+     29.5.0 injects a private `time` namespace into every container's OCI spec
+     (moby/moby#52326), unsupported by sysbox-runc (nestybox/sysbox#1011).
+     Worked around with `features."time-namespaces" = false`, which exposed:
+  2. `getting pipe fds … readlink /proc/<pid>/fd/0: no such file or directory` —
+     sysbox-mgr/fs register then immediately unregister the container; the
+     init/console-fd path in `sysbox-runc` fails. Another facet of the same skew
+     (Docker 29.5 changed stdio/console handling).
+  Upstream evidence is decisive: #1011 shows plain `debian:bookworm-slim` works on
+  Docker **29.4.3** and breaks on **29.5.0**, and the reporter is on sysbox **0.7.0**
+  (latest) — so upstream's newest release doesn't support 29.5 either. Chasing
+  per-symptom workarounds is whack-a-mole. **Fix: pin Docker below 29.5.**
+  Current nixpkgs unstable exposes only `docker_25` (25.0.16) and `docker_29`
+  (29.5.3) — no 29.4.x — so set `virtualisation.docker.package = pkgs.docker_25`
+  (predates the time-namespace change; within sysbox's supported range). Reverted
+  the `time-namespaces` workaround (moot below 29.5). **Revisit** when upstream
+  sysbox supports 29.x, or pin a dedicated nixpkgs input for 29.4.x if 25 is too old.
 
 ### Pending
-- **Re-run smoke test** after `nixos-rebuild switch` with the `time-namespaces`
-  fix (dockerd restarts). Confirm inner dockerd starts unprivileged.
+- **Re-run smoke test** after `nixos-rebuild switch` with Docker pinned to 25.x
+  (dockerd restarts). Confirm `docker run --runtime=sysbox-runc docker:dind`
+  starts inner dockerd unprivileged.
 
 ### Commits
 - `1d21069` vendor polferov/sysbox-nix for review
