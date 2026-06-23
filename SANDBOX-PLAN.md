@@ -85,11 +85,38 @@ reintroduces port/path remapping. Sysbox collapses those layers.
   `time-namespaces` workaround (moot below 29.5). **Revisit** when upstream sysbox
   supports 29.5+ → drop the input, use main nixpkgs docker.
 
-### Pending
-- **Update flake.lock** for the new `nixpkgs-docker` input (`nix flake lock`),
-  then **re-run smoke test** after `nixos-rebuild switch` (dockerd downgrades
-  29.5.1 → 29.4.3 and restarts). Confirm `docker version` shows 29.4.3 and
-  `docker run --runtime=sysbox-runc docker:dind` starts inner dockerd unprivileged.
+### BLOCKED — sysbox 0.6.7 can't start any container on kernel 6.18 (WSL2)
+- Docker pinned to 29.4.3 successfully (`docker version` → 29.4.3), which cleared
+  the `time` namespace error. **But the smoke test still fails**, now for an
+  unrelated, deeper reason — and for *every* image (`ubuntu:24.04` too, not just
+  `docker:dind`), with and without `-it`. Docker version is fully exonerated.
+- Symptom: `process_linux.go:440: waiting for our first child to exit caused:
+  exit status 1` (and the racy `getting pipe fds … /proc/<pid>/fd/0: no such
+  file` variant). sysbox-runc's container-init bootstrap (the nsenter "first
+  child") **exits 1 silently** before writing any error; the shim log fifo
+  closes (`copy shim log … file already closed`); `init.pid` never written.
+- Diagnostics (full capture analysed):
+  - `uname -r` = **`6.18.33.1-microsoft-standard-WSL2`** (bleeding-edge).
+  - `sysbox-mgr`/`sysbox-fs` register then immediately unregister the container
+    **with no error** → the daemons are healthy; failure is entirely in
+    `sysbox-runc`'s init path.
+  - `dmesg`: **no seccomp kill, no userns/audit denial, no kernel rejection** —
+    nothing. The init child just dies.
+- Assessment: **sysbox 0.6.7 ↔ kernel 6.18 incompatibility.** sysbox is
+  kernel-sensitive and lags new kernels (cf. nestybox/sysbox#596, #882); 0.6.7
+  predates 6.18. This is a more fundamental blocker than the Docker versioning.
+  The earlier "environment validated" step checked prerequisites (userns, idmap,
+  cgroup v2) but never actually ran a sysbox container, so it surfaced only now.
+
+### DECISION NEEDED — path forward (parked pending choice)
+1. **Try newer sysbox (0.7.0 / master)** — likeliest kernel-6.18 fix; cheap-ish
+   via existing Nix packaging (bump version + 4 hashes). Recommended first.
+2. **Capture sysbox-runc debug log** (add `runtimeArgs` debug flags + rebuild) to
+   pinpoint the exact init failure before heavier moves.
+3. **Pin an older WSL2 kernel** (`.wslconfig kernel=`) to a sysbox-known-good LTS
+   (6.1/6.8). Reliable but changes the whole box.
+4. **Drop sysbox → plan's runner-up** (unprivileged agent + privileged dind
+   sidecar + body-filtering socket proxy). No kernel dependency; more moving parts.
 
 ### Commits
 - `1d21069` vendor polferov/sysbox-nix for review
