@@ -120,6 +120,14 @@
                   "unix:///var/run/docker.sock"
                   "tcp://0.0.0.0:2375"
                 ];
+                features = {
+                  # Docker 29.5.0+ gives each container a private "time"
+                  # namespace by default (virtualizes CLOCK_MONOTONIC/BOOTTIME,
+                  # not wall-clock). sysbox-runc 0.6.7 doesn't support it and
+                  # fails to start containers, so disable it daemon-wide.
+                  # Remove once upstream sysbox handles the namespace.
+                  "time-namespaces" = false;
+                };
               };
               users.users.nixos.extraGroups = [ "docker" ];
 
