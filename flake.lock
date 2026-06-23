@@ -232,6 +232,22 @@
         "type": "github"
       }
     },
+    "nixpkgs-docker": {
+      "locked": {
+        "lastModified": 1778542401,
+        "narHash": "sha256-ZWyKr+yybF4sc5z2p72r5LCXf/Hc0dB1qKlpM4Etdtc=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "8e4a6e1b8b11b3c809db563aaa6f8015d7aa70ac",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "8e4a6e1b8b11b3c809db563aaa6f8015d7aa70ac",
+        "type": "github"
+      }
+    },
     "nugetui": {
       "inputs": {
         "nixpkgs": [
@@ -277,6 +293,7 @@
         "nixCats": "nixCats",
         "nixos-wsl": "nixos-wsl",
         "nixpkgs": "nixpkgs",
+        "nixpkgs-docker": "nixpkgs-docker",
         "nugetui": "nugetui",
         "plugins-roslyn-nvim": "plugins-roslyn-nvim",
         "ticket": "ticket"
