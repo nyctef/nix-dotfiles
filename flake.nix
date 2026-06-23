@@ -30,8 +30,7 @@
     ticket.url = "github:wedow/ticket";
     ticket.flake = false;
 
-    # pin to PR #308 fix for source-generated file BufReadCmd assert
-    plugins-roslyn-nvim.url = "github:molostovvs/roslyn.nvim/fix-source-generated-bufs";
+    plugins-roslyn-nvim.url = "github:seblyng/roslyn.nvim";
     plugins-roslyn-nvim.flake = false;
   };
 
