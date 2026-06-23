@@ -10,7 +10,7 @@
     # upstream sysbox supports Docker 29.5+, then use the main nixpkgs docker.
     nixpkgs-docker.url = "github:nixos/nixpkgs/8e4a6e1b8b11b3c809db563aaa6f8015d7aa70ac";
 
-    home-manager.url = "github:nix-community/home-manager/release-26.05";
+    home-manager.url = "github:nix-community/home-manager/master";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
 
     nixos-wsl.url = "github:nix-community/NixOS-WSL/main";
