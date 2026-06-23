@@ -37,6 +37,13 @@
 
       # allow modified Enter/key combos (e.g. shift+enter) to pass through
       set -g extended-keys on
+
+      # let apps (e.g. Claude Code) forward DCS-wrapped OSC 52 clipboard
+      # sequences through tmux to the outer terminal. without this, the
+      # "X characters copied to clipboard" popup fires but nothing is copied.
+      set -g allow-passthrough on
+      # ensure tmux forwards OSC 52 clipboard writes to the outer terminal
+      set -g set-clipboard on
     '';
   };
 }
