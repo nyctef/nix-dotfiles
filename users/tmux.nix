@@ -37,6 +37,7 @@
 
       # allow modified Enter/key combos (e.g. shift+enter) to pass through
       set -g extended-keys on
+      set -g extended-keys-format csi-u
 
       # let apps (e.g. Claude Code) forward DCS-wrapped OSC 52 clipboard
       # sequences through tmux to the outer terminal. without this, the
