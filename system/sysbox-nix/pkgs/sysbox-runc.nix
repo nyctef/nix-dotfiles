@@ -16,7 +16,16 @@ buildGoModule {
   vendorHash = "sha256-e2RxH1XPyaTpwMmxnBSPwd8+qWjZD92BEk58kfMlFPU=";
   proxyVendor = false;
 
-  patches = [ ./nsexec-oom-nonfatal.patch ];
+  # oom_score_adj is only an OOM-kill priority hint, but on this kernel the
+  # write is rejected with EACCES, which otherwise aborts container startup.
+  # Warn and continue. (Patches the vendored runc copy, which is what cgo
+  # actually compiles.)
+  postConfigure = ''
+    substituteInPlace vendor/github.com/opencontainers/runc/libcontainer/nsenter/nsexec.c \
+      --replace-fail \
+        'bail("failed to update /proc/self/oom_score_adj");' \
+        'write_log(WARNING, "failed to update /proc/self/oom_score_adj: %m");'
+  '';
 
   nativeBuildInputs = [ pkg-config ] ++ common.protoNativeBuildInputs;
   buildInputs = [ libseccomp ];
