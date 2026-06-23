@@ -62,7 +62,7 @@ reintroduces port/path remapping. Sysbox collapses those layers.
 - **Activated** — `nixos-rebuild switch` applied; `sysbox-mgr`/`sysbox-fs`/`sysbox`
   services up, `sysbox-runc` runtime registered. subuid/subgid sorted itself out
   (no declarative `users.users.sysbox` needed).
-- **Diagnosed sysbox 0.6.7 ✗ Docker 29.5 version skew → pinned Docker to 25.x.**
+- **Diagnosed sysbox 0.6.7 ✗ Docker 29.5 version skew → pinned Docker to 29.4.3.**
   Smoke test on Docker 29.5.1 failed in two stages:
   1. `OCI runtime create failed: namespace {"time" ""} does not exist` — Docker
      29.5.0 injects a private `time` namespace into every container's OCI spec
@@ -75,17 +75,21 @@ reintroduces port/path remapping. Sysbox collapses those layers.
   Upstream evidence is decisive: #1011 shows plain `debian:bookworm-slim` works on
   Docker **29.4.3** and breaks on **29.5.0**, and the reporter is on sysbox **0.7.0**
   (latest) — so upstream's newest release doesn't support 29.5 either. Chasing
-  per-symptom workarounds is whack-a-mole. **Fix: pin Docker below 29.5.**
-  Current nixpkgs unstable exposes only `docker_25` (25.0.16) and `docker_29`
-  (29.5.3) — no 29.4.x — so set `virtualisation.docker.package = pkgs.docker_25`
-  (predates the time-namespace change; within sysbox's supported range). Reverted
-  the `time-namespaces` workaround (moot below 29.5). **Revisit** when upstream
-  sysbox supports 29.x, or pin a dedicated nixpkgs input for 29.4.x if 25 is too old.
+  per-symptom workarounds is whack-a-mole. **Fix: pin Docker to 29.4.3** — the
+  last known-good release (#1011), one minor behind current. Current nixpkgs
+  unstable carries only `docker_25` and `docker_29` (29.5.3), so 29.4.3 is sourced
+  from a **dedicated pinned input** `nixpkgs-docker` @ `8e4a6e1b8b11` (the nixpkgs
+  commit where `docker_29` = 29.4.3, just before the 29.5.1 bump); does *not*
+  follow nixpkgs. Wired via `virtualisation.docker.package =
+  inputs.nixpkgs-docker.legacyPackages.${system}.docker_29`. Reverted the
+  `time-namespaces` workaround (moot below 29.5). **Revisit** when upstream sysbox
+  supports 29.5+ → drop the input, use main nixpkgs docker.
 
 ### Pending
-- **Re-run smoke test** after `nixos-rebuild switch` with Docker pinned to 25.x
-  (dockerd restarts). Confirm `docker run --runtime=sysbox-runc docker:dind`
-  starts inner dockerd unprivileged.
+- **Update flake.lock** for the new `nixpkgs-docker` input (`nix flake lock`),
+  then **re-run smoke test** after `nixos-rebuild switch` (dockerd downgrades
+  29.5.1 → 29.4.3 and restarts). Confirm `docker version` shows 29.4.3 and
+  `docker run --runtime=sysbox-runc docker:dind` starts inner dockerd unprivileged.
 
 ### Commits
 - `1d21069` vendor polferov/sysbox-nix for review

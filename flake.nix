@@ -4,6 +4,12 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
 
+    # Pinned nixpkgs solely to source Docker 29.4.3 (the last release that
+    # works with sysbox-runc 0.6.7 — 29.5+ breaks it; see nestybox/sysbox#1011).
+    # Deliberately does NOT follow nixpkgs, which is on 29.5+. Drop once
+    # upstream sysbox supports Docker 29.5+, then use the main nixpkgs docker.
+    nixpkgs-docker.url = "github:nixos/nixpkgs/8e4a6e1b8b11b3c809db563aaa6f8015d7aa70ac";
+
     home-manager.url = "github:nix-community/home-manager/release-26.05";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
 
@@ -115,12 +121,14 @@
             })
             {
               virtualisation.docker.enable = true;
-              # Pin Docker to the 25.x line. sysbox-runc 0.6.7 doesn't support
-              # Docker 29.5+ (which injects a "time" namespace by default and
-              # changed stdio/console fd handling) — containers fail to start
-              # with sysbox-runc. 25.0.x predates both and is within sysbox's
-              # supported range. Revisit once upstream sysbox supports 29.x.
-              virtualisation.docker.package = pkgs.docker_25;
+              # Pin Docker to 29.4.3 (from the nixpkgs-docker input). sysbox-runc
+              # 0.6.7 doesn't support Docker 29.5+ (which injects a "time"
+              # namespace by default and changed stdio/console fd handling) —
+              # containers fail to start with sysbox-runc. 29.4.3 is the last
+              # known-good release (nestybox/sysbox#1011), one minor behind 29.5.
+              # Revisit once upstream sysbox supports 29.x.
+              virtualisation.docker.package =
+                inputs.nixpkgs-docker.legacyPackages.${system}.docker_29;
               virtualisation.docker.daemon.settings = {
                 hosts = [
                   "unix:///var/run/docker.sock"
