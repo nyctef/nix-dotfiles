@@ -113,35 +113,30 @@ reintroduces port/path remapping. Sysbox collapses those layers.
   `sysbox-runc --debug create` reaches `exit 0` (oom line now `WARN`, init
   completes through seccomp setup).
 
-### Pending — end-to-end activation
-- `sudo nixos-rebuild switch` (activates the patched 0.7.0 sysbox) then the real
-  smoke test: `docker run --rm --runtime=sysbox-runc -it docker:dind` → inner
-  dockerd unprivileged. (So far only the standalone `sysbox-runc` binary is
-  verified; the activated docker→containerd→sysbox-runc path is the last check.)
+- **PROVEN END-TO-END (2026-06-23).** `nixos-rebuild switch` activated the patched
+  0.7.0 sysbox; `docker run --runtime=sysbox-runc docker:dind` starts inner
+  dockerd, `docker run hello-world` works nested inside, and the outer container
+  is **unprivileged with real UID remapping** (host `/proc/<pid>/uid_map` shows
+  container uid 0 → a high host subuid, not 0). The enabling prerequisite for the
+  whole sandbox design is satisfied.
 
-### Commits
+### Commits (sysbox enablement)
 - `1d21069` vendor polferov/sysbox-nix for review
 - `ca248f2` integrate vendored sysbox into tachikoma (Option B)
+- pin Docker 29.4.3 via dedicated `nixpkgs-docker` input
+- bump vendored sysbox 0.6.7 → 0.7.0
+- `sysbox-fs`: fuse3 (fusermount3) on service PATH
+- `sysbox-runc`: oom-nonfatal patch on the vendored runc nsexec
 
 ---
 
-## NEXT: activate patched sysbox + end-to-end smoke test
+## NEXT: Phase A — run the agent under sysbox (new script)
 
-All fixes are committed (Docker 29.4.3 pin, sysbox 0.7.0, fuse3, oom-nonfatal
-patch). `sysbox-runc create` is verified standalone on kernel 6.18; remaining
-step is to activate and test the full docker→containerd→sysbox-runc path:
-```sh
-sudo nixos-rebuild switch --flake ~/.dotfiles#tachikoma
-```
-Watch-out: **restarts `docker.service`** (sysbox unit orders `Before=docker.service`)
-→ running containers stop. Do it when idle.
-
-### Smoke test (after activation)
-```sh
-systemctl status sysbox-mgr sysbox-fs --no-pager
-docker run --rm --runtime=sysbox-runc -it docker:dind   # inner dockerd, unprivileged
-# inside: `docker run hello-world`; on host: confirm container is NOT privileged
-```
+Sysbox is proven; the enabling work is done. Next is **Phase A** below: a fresh
+`utils/run-claude-sandbox.sh` launching the agent container with
+`--runtime=sysbox-runc`, dockerd installed *inside* the image, no host-socket
+mount, inner data-root on a per-instance volume. Target outcome:
+`dotnet test → docker run -p` works with native ergonomics, agent unprivileged.
 
 ---
 
