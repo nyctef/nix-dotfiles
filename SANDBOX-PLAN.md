@@ -85,38 +85,39 @@ reintroduces port/path remapping. Sysbox collapses those layers.
   `time-namespaces` workaround (moot below 29.5). **Revisit** when upstream sysbox
   supports 29.5+ → drop the input, use main nixpkgs docker.
 
-### BLOCKED — sysbox 0.6.7 can't start any container on kernel 6.18 (WSL2)
-- Docker pinned to 29.4.3 successfully (`docker version` → 29.4.3), which cleared
-  the `time` namespace error. **But the smoke test still fails**, now for an
-  unrelated, deeper reason — and for *every* image (`ubuntu:24.04` too, not just
-  `docker:dind`), with and without `-it`. Docker version is fully exonerated.
-- Symptom: `process_linux.go:440: waiting for our first child to exit caused:
-  exit status 1` (and the racy `getting pipe fds … /proc/<pid>/fd/0: no such
-  file` variant). sysbox-runc's container-init bootstrap (the nsenter "first
-  child") **exits 1 silently** before writing any error; the shim log fifo
-  closes (`copy shim log … file already closed`); `init.pid` never written.
-- Diagnostics (full capture analysed):
-  - `uname -r` = **`6.18.33.1-microsoft-standard-WSL2`** (bleeding-edge).
-  - `sysbox-mgr`/`sysbox-fs` register then immediately unregister the container
-    **with no error** → the daemons are healthy; failure is entirely in
-    `sysbox-runc`'s init path.
-  - `dmesg`: **no seccomp kill, no userns/audit denial, no kernel rejection** —
-    nothing. The init child just dies.
-- Assessment: **sysbox 0.6.7 ↔ kernel 6.18 incompatibility.** sysbox is
-  kernel-sensitive and lags new kernels (cf. nestybox/sysbox#596, #882); 0.6.7
-  predates 6.18. This is a more fundamental blocker than the Docker versioning.
-  The earlier "environment validated" step checked prerequisites (userns, idmap,
-  cgroup v2) but never actually ran a sysbox container, so it surfaced only now.
+- **`sysbox-runc create` succeeds (kernel 6.18).** After the Docker pin cleared
+  the `time` namespace error, the smoke test still failed for *every* image with
+  `process_linux.go:440: waiting for our first child to exit: exit status 1` (a
+  silent nsenter abort; `sysbox-mgr`/`fs` register then immediately unregister,
+  no `dmesg` denial). Chased to root cause and fixed in three steps:
+  1. **Bumped vendored sysbox 0.6.7 → 0.7.0** (latest; src + 3 vendorHashes
+     regenerated via `nix build .#sysbox --keep-going`; added a buildable
+     `packages.${system}.sysbox` flake output). 0.7.0's openat2 trapping got past
+     the silent init abort, exposing:
+  2. **sysbox-fs FUSE init failure** — `fusermount: exec: "fusermount3": …not
+     found`. 0.7.0 calls `fusermount3` (FUSE 3); the service PATH had `pkgs.fuse`
+     (FUSE 2). Fixed: `pkgs.fuse` → `pkgs.fuse3` in `modules/sysbox.nix`. That
+     exposed the real, version-independent blocker:
+  3. **nsexec aborts on the `oom_score_adj` write** — `update_oom_score_adj:353
+     nsenter: failed to update /proc/self/oom_score_adj: Permission denied`.
+     nsexec unconditionally writes `oom_score_adj` (a kill-priority *hint*); the
+     write fails with EACCES under sysbox's userns on this kernel and the default
+     `bail()` aborts container start. Patched to warn-and-continue.
+- **Patch gotcha (cost ~hours):** the fix must target the **vendored** runc copy
+  (`vendor/github.com/opencontainers/runc/libcontainer/nsenter/nsexec.c`) — that's
+  what cgo compiles — *not* sysbox-runc's own `libcontainer/nsenter` tree (dead
+  code for this binary). A `patches`-on-source entry applied cleanly to the unused
+  copy and left the binary unchanged. Now applied via `postConfigure`
+  `substituteInPlace --replace-fail` on the vendored file (self-verifying).
+- Verified: `strings` shows the patched (no-`nsenter:`-prefix) string; manual
+  `sysbox-runc --debug create` reaches `exit 0` (oom line now `WARN`, init
+  completes through seccomp setup).
 
-### DECISION NEEDED — path forward (parked pending choice)
-1. **Try newer sysbox (0.7.0 / master)** — likeliest kernel-6.18 fix; cheap-ish
-   via existing Nix packaging (bump version + 4 hashes). Recommended first.
-2. **Capture sysbox-runc debug log** (add `runtimeArgs` debug flags + rebuild) to
-   pinpoint the exact init failure before heavier moves.
-3. **Pin an older WSL2 kernel** (`.wslconfig kernel=`) to a sysbox-known-good LTS
-   (6.1/6.8). Reliable but changes the whole box.
-4. **Drop sysbox → plan's runner-up** (unprivileged agent + privileged dind
-   sidecar + body-filtering socket proxy). No kernel dependency; more moving parts.
+### Pending — end-to-end activation
+- `sudo nixos-rebuild switch` (activates the patched 0.7.0 sysbox) then the real
+  smoke test: `docker run --rm --runtime=sysbox-runc -it docker:dind` → inner
+  dockerd unprivileged. (So far only the standalone `sysbox-runc` binary is
+  verified; the activated docker→containerd→sysbox-runc path is the last check.)
 
 ### Commits
 - `1d21069` vendor polferov/sysbox-nix for review
@@ -124,21 +125,16 @@ reintroduces port/path remapping. Sysbox collapses those layers.
 
 ---
 
-## NEXT: re-run smoke test (sysbox activated; `time-namespaces` fix applied)
+## NEXT: activate patched sysbox + end-to-end smoke test
 
-Activated once already (see Done). After the `time-namespaces = false` fix,
-re-apply and re-smoke-test:
+All fixes are committed (Docker 29.4.3 pin, sysbox 0.7.0, fuse3, oom-nonfatal
+patch). `sysbox-runc create` is verified standalone on kernel 6.18; remaining
+step is to activate and test the full docker→containerd→sysbox-runc path:
 ```sh
 sudo nixos-rebuild switch --flake ~/.dotfiles#tachikoma
 ```
-Effects / watch-outs:
-- Starts `sysbox-mgr`, `sysbox-fs`, `sysbox` services.
-- **Restarts `docker.service`** (sysbox unit orders `Before=docker.service`) →
-  running containers stop. Do it when idle.
-- **Most likely friction — subuid/subgid.** sysbox-mgr allocates a range for a
-  `sysbox` user at startup; `/etc/subuid`/`/etc/subgid` are declaratively managed
-  on NixOS. If it errors, add a declarative `users.users.sysbox` (+ subuid/subgid
-  entry) — would become a tracked integration addition (like the sysctl forces).
+Watch-out: **restarts `docker.service`** (sysbox unit orders `Before=docker.service`)
+→ running containers stop. Do it when idle.
 
 ### Smoke test (after activation)
 ```sh
