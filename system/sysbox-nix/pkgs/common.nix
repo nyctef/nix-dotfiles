@@ -1,14 +1,14 @@
 { fetchFromGitHub, lib, protobuf, protoc-gen-go, protoc-gen-go-grpc }:
 
 rec {
-  version = "0.6.7";
+  version = "0.7.0";
 
   src = fetchFromGitHub {
     owner = "nestybox";
     repo = "sysbox";
     rev = "v${version}";
     fetchSubmodules = true;
-    hash = "sha256-1tI77wJZknzku4OVL5ItTwOs/spAKMClp3WY6dGR2oE=";
+    hash = "sha256-zcN42LSBxBROPi49gdW+PPuIfnMHVmNhYzuBhs3Nc5U=";
   };
 
   ldflags = [

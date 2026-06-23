@@ -62,6 +62,12 @@
     in
     {
 
+      # Buildable handle for the vendored sysbox package, using the same `pkgs`
+      # (and Go toolchain) the NixOS module builds it with — so vendorHashes
+      # computed here match. Build with `--keep-going` to surface all three
+      # component vendorHashes in one run. Safe to keep around for iteration.
+      packages.${system}.sysbox = pkgs.callPackage ./system/sysbox-nix/pkgs { };
+
       homeConfigurations = {
         "nixos@tachikoma" = home-manager.lib.homeManagerConfiguration {
           inherit pkgs;

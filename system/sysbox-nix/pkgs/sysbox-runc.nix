@@ -13,7 +13,7 @@ buildGoModule {
   inherit (common) version src ldflags;
 
   modRoot = "sysbox-runc";
-  vendorHash = "sha256-xHUqwAEjfTovUsM721N6Z+9aONiU1u5ZNcJAe583l3Y=";
+  vendorHash = "sha256-e2RxH1XPyaTpwMmxnBSPwd8+qWjZD92BEk58kfMlFPU=";
   proxyVendor = false;
 
   nativeBuildInputs = [ pkg-config ] ++ common.protoNativeBuildInputs;
