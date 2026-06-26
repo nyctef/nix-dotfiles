@@ -6,11 +6,16 @@
 # as it does when run straight from the repo. No env-var bridge needed.
 #
 # Layout in $out:
-#   bin/run-agent-sandbox             -> makeWrapper shim (sets PATH, execs ↓)
+#   bin/run-claude-sandbox            -> shim for the Claude wrapper (daily use)
+#   bin/run-agent-sandbox             -> shim for the generic core (other agents)
 #   libexec/agent-sandbox/
-#     run-agent-sandbox.sh            <- BASH_SOURCE points here; siblings below
+#     run-claude-sandbox.sh           <- Claude wrapper; calls the core sibling
+#     run-agent-sandbox.sh            <- generic core; BASH_SOURCE points here
 #     Dockerfile
 #     entrypoint.sh
+#
+# The Claude wrapper finds the core via BASH_SOURCE (they're siblings in
+# libexec), so only the bin shims need PATH wrapping.
 pkgs.stdenv.mkDerivation {
   name = "run-agent-sandbox";
 
@@ -21,13 +26,15 @@ pkgs.stdenv.mkDerivation {
   dontBuild = true;
 
   installPhase = ''
-    mkdir -p $out/libexec/agent-sandbox $out/bin
-    cp run-agent-sandbox.sh Dockerfile entrypoint.sh $out/libexec/agent-sandbox/
-    chmod +x $out/libexec/agent-sandbox/run-agent-sandbox.sh \
-             $out/libexec/agent-sandbox/entrypoint.sh
+    libexec=$out/libexec/agent-sandbox
+    mkdir -p $libexec $out/bin
+    cp run-claude-sandbox.sh run-agent-sandbox.sh Dockerfile entrypoint.sh $libexec/
+    chmod +x $libexec/run-claude-sandbox.sh $libexec/run-agent-sandbox.sh \
+             $libexec/entrypoint.sh
 
-    makeWrapper $out/libexec/agent-sandbox/run-agent-sandbox.sh \
-      $out/bin/run-agent-sandbox \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.docker pkgs.coreutils pkgs.git ]}
+    for entry in run-claude-sandbox run-agent-sandbox; do
+      makeWrapper $libexec/$entry.sh $out/bin/$entry \
+        --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.docker pkgs.coreutils pkgs.git ]}
+    done
   '';
 }

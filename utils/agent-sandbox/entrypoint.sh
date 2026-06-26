@@ -52,12 +52,14 @@ echo "WARN: Phase A — network egress is NOT restricted yet. Treat as open." >&
 # See run-claude-docker.sh for the full explanation of why `bash -c` can't
 # support Ctrl-Z and the rcfile/PROMPT_COMMAND trick is needed.
 #
-# The agent command itself is still hardcoded to Claude; generalising it (and
-# the `claude` user/home below) to other agents is deferred.
+# The base agent command is supplied by the launcher via $SANDBOX_AGENT_CMD
+# (e.g. "claude --dangerously-skip-permissions"); args after `--` are appended.
+# The `claude` user/home below is still fixed (image-level); generalising it is
+# deferred.
+
+AGENT_CMD="${SANDBOX_AGENT_CMD:?SANDBOX_AGENT_CMD not set by the launcher}"
 
 shift  # consume the "--" separator
-
-AGENT_CMD="claude --dangerously-skip-permissions"
 for arg in "$@"; do
     AGENT_CMD+=" $(printf '%q' "$arg")"
 done

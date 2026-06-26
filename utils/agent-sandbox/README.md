@@ -8,19 +8,22 @@ working `utils/run-claude-docker.sh` (which stays untouched as the daily driver)
 reverse-engineering study of Docker `sbx` (host-side TLS MITM proxy for
 credential injection + Cedar egress policy + microVM isolation).
 
-The sandbox *infrastructure* is agent-agnostic, but which agent runs is still
-hardcoded to Claude (the `claude` binary/user/home and the entrypoint command).
-Generalising that to other agents is deferred — only the names are generic so
-far.
+The launcher is split into an **agent-agnostic core** and a thin
+**Claude-specific wrapper**: the core takes the agent command, extra bind
+mounts, and env vars as arguments; the wrapper supplies Claude's. Adding another
+agent (pi-dev) is then a sibling wrapper, no core changes. The `claude`
+user/home *inside the image* is still fixed (image-level) — generalising that is
+deferred.
 
 Unlike the old single-file script, the pieces are split into separate files:
 
-| file                   | role                                                        |
-|------------------------|-------------------------------------------------------------|
-| `default.nix`          | copies the folder into the store; PATH-wraps the launcher   |
-| `run-agent-sandbox.sh` | host launcher — worktree, mounts, `docker run`              |
-| `Dockerfile`           | agent image — full `dockerd` inside, **no host socket**     |
-| `entrypoint.sh`        | in-container: start inner dockerd, then drop to `claude`    |
+| file                    | role                                                        |
+|-------------------------|-------------------------------------------------------------|
+| `default.nix`           | copies the folder into the store; PATH-wraps both launchers |
+| `run-claude-sandbox.sh` | Claude wrapper — claude cmd/binary/config mounts/env, then calls the core |
+| `run-agent-sandbox.sh`  | **generic core** — worktree, build, mounts, `docker run`    |
+| `Dockerfile`            | agent image — full `dockerd` inside, **no host socket**     |
+| `entrypoint.sh`         | in-container: start inner dockerd, run `$SANDBOX_AGENT_CMD` as `claude` |
 
 ## Core idea
 
@@ -131,7 +134,7 @@ from a checkout (without Nix packaging) — the launcher finds its `Dockerfile`
 and `entrypoint.sh` siblings via `BASH_SOURCE`, so just run it by path:
 
 ```sh
-utils/agent-sandbox/run-agent-sandbox.sh
+utils/agent-sandbox/run-claude-sandbox.sh
 ```
 
 Next steps: validate inner dockerd starts under sysbox, confirm

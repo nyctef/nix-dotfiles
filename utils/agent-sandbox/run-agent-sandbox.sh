@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Run an AI coding agent (e.g. Claude Code; pi-dev later) in YOLO mode inside a
-# sysbox-isolated sandbox.
+# Generic sysbox sandbox launcher — agent-agnostic core.
+#
+# The caller supplies what makes a run agent-specific: the command to launch
+# inside, plus any extra bind mounts and env vars. See run-claude-sandbox.sh for
+# the Claude-specific wrapper that calls this.
 #
 # This is the NEW hardened path, developed alongside the working
 # run-claude-docker.sh (which stays untouched). See README.md.
 #
-# Differences from run-claude-docker.sh:
 #   - Container runs under --runtime=sysbox-runc (unprivileged, real UID
 #     remapping). The agent is the adversary; it must not be privileged.
 #   - dockerd runs INSIDE the container. There is NO host Docker socket mount
@@ -16,14 +18,28 @@ set -euo pipefail
 #     share an inner data-root.
 #
 # Phase A scope: ergonomics + isolation. Network egress is NOT yet restricted
-# (Phase B). Credentials are still mounted from the host (Phase C).
+# (Phase B). Credentials are still passed from the host (Phase C).
 #
-# NOTE: which agent runs is still hardcoded to Claude (the `claude` binary, user
-# and home dir below, plus the entrypoint command). Generalising that to other
-# agents (pi-dev) is deferred — only the sandbox-infrastructure names are
-# generic so far.
+# Usage:
+#   run-agent-sandbox.sh --agent-cmd <cmd> \
+#       [--mount <mode>:<host>:<container>]... \
+#       [--env <NAME=VALUE>]... \
+#       [--worktree <name>] \
+#       -- [agent args...]
 #
-# Usage: run-agent-sandbox.sh [--worktree <name>] [agent args...]
+#   --agent-cmd <cmd>   Base command launched inside the container (required),
+#                       e.g. "claude --dangerously-skip-permissions". Anything
+#                       after `--` is appended to it.
+#   --mount <spec>      Extra bind mount; repeatable. <spec> = <mode>:<host>:
+#                       <container>, mode = ro|rw. The host path is resolved
+#                       (readlink -f) and Nix-store symlinks beneath it are
+#                       expanded, so dotfiles symlinked into /nix/store still
+#                       resolve inside the container. Missing host paths are
+#                       silently skipped.
+#   --env <NAME=VALUE>  Extra env var passed into the container; repeatable.
+#   --worktree <name>   Branch a git worktree from HEAD and mount it as the
+#                       working dir (main repo mounted ro alongside).
+#
 #   Run from any project directory — it mounts $PWD as the working dir.
 
 # The launcher's support files (Dockerfile, entrypoint.sh) live alongside this
@@ -34,17 +50,26 @@ SUPPORT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ---------- parse options ----------
 
+AGENT_CMD=""
 WORKTREE_NAME=""
+MOUNT_SPECS=()
+ENV_SPECS=()
 AGENT_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --worktree)
-            WORKTREE_NAME="$2"
-            shift 2
-            ;;
-        *)  AGENT_ARGS+=("$1"); shift ;;
+        --agent-cmd) AGENT_CMD="$2"; shift 2 ;;
+        --mount)     MOUNT_SPECS+=("$2"); shift 2 ;;
+        --env)       ENV_SPECS+=("$2"); shift 2 ;;
+        --worktree)  WORKTREE_NAME="$2"; shift 2 ;;
+        --)          shift; AGENT_ARGS=("$@"); break ;;
+        *)  echo "ERROR: unknown option '$1' (agent args go after '--')" >&2; exit 1 ;;
     esac
 done
+
+if [[ -z "$AGENT_CMD" ]]; then
+    echo "ERROR: --agent-cmd is required" >&2
+    exit 1
+fi
 
 # ---------- configuration ----------
 
@@ -55,7 +80,6 @@ DOCKER_RUNTIME="sysbox-runc"
 DATA_VOLUME="agent-sandbox-varlib-$$"
 
 HOST_REPO_DIR="$PWD"
-CLAUDE_BINARY="$(readlink -f ~/.local/bin/claude)"
 
 # ---------- worktree setup (copied verbatim from run-claude-docker.sh) ----------
 
@@ -97,11 +121,6 @@ if ! command -v docker &>/dev/null; then
     exit 1
 fi
 
-if [[ ! -x "$CLAUDE_BINARY" ]]; then
-    echo "ERROR: claude binary not found at $CLAUDE_BINARY" >&2
-    exit 1
-fi
-
 # Fail early with a clear message if the sysbox runtime isn't registered —
 # this is the whole point of the new path.
 if ! docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q "$DOCKER_RUNTIME"; then
@@ -125,7 +144,7 @@ docker build \
     -f "$SUPPORT_DIR/Dockerfile" \
     "$SUPPORT_DIR"
 
-# ---------- optional mounts (copied from run-claude-docker.sh) ----------
+# ---------- assemble bind mounts from --mount specs ----------
 
 OPTIONAL_MOUNTS=()
 
@@ -157,34 +176,29 @@ add_mount() {
     fi
 }
 
-add_mount rw "${HOME}/.claude"      "/home/claude/.claude"
-add_mount rw "${HOME}/.claude.json" "/home/claude/.claude.json"
-# TODO Phase C: stop mounting real creds; inject via the proxy instead.
-add_mount ro "${HOME}/.config/NuGet/NuGet.Config" "/home/claude/.config/NuGet/NuGet.Config"
-add_mount ro "${HOME}/.config/NuGet/config/rg.config" "/home/claude/.config/NuGet/config/rg.config"
-add_mount rw "${HOME}/.nuget/packages" "/home/claude/.nuget/packages"
-add_mount ro "${HOME}/.dotfiles"    "/home/claude/.dotfiles"
-if [[ "${HOME}/.dotfiles" != "/home/claude/.dotfiles" ]]; then
-    add_mount ro "${HOME}/.dotfiles" "${HOME}/.dotfiles"
-fi
-add_mount ro "${HOME}/.gitconfig"   "/home/claude/.gitconfig"
-add_mount ro "${HOME}/.config/git/" "/home/claude/.config/git/"
-add_mount ro "${HOME}/.config/gh"   "/home/claude/.config/gh"
+for spec in ${MOUNT_SPECS[@]+"${MOUNT_SPECS[@]}"}; do
+    # <mode>:<host>:<container> — host/container paths must not contain ':'.
+    mode="${spec%%:*}"
+    rest="${spec#*:}"
+    host="${rest%:*}"
+    container="${rest##*:}"
+    if [[ "$mode" != "ro" && "$mode" != "rw" ]] || [[ -z "$host" || -z "$container" ]]; then
+        echo "ERROR: bad --mount spec '$spec' (want <ro|rw>:<host>:<container>)" >&2
+        exit 1
+    fi
+    add_mount "$mode" "$host" "$container"
+done
 
-# ---------- container-only OAuth token (copied from run-claude-docker.sh) ----------
+# ---------- assemble env from --env specs ----------
 
 EXTRA_ENV=()
-CRED_MASK=""
-if [[ -n "${CLAUDE_DOCKER_OAUTH_TOKEN:-}" ]]; then
-    EXTRA_ENV+=(-e "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_DOCKER_OAUTH_TOKEN}")
-    CRED_MASK="$(mktemp)"
-    OPTIONAL_MOUNTS+=(-v "${CRED_MASK}:/home/claude/.claude/.credentials.json:rw")
-fi
+for spec in ${ENV_SPECS[@]+"${ENV_SPECS[@]}"}; do
+    EXTRA_ENV+=(-e "$spec")
+done
 
 # ---------- cleanup ----------
 
 cleanup() {
-    rm -f ${CRED_MASK:+"$CRED_MASK"}
     # Per-instance inner data-root volume is disposable.
     docker volume rm -f "$DATA_VOLUME" >/dev/null 2>&1 || true
 }
@@ -199,7 +213,7 @@ echo "  Worktree     : $WORKTREE_NAME (branch from $(git -C "$HOST_REPO_DIR" rev
 echo "  Main repo    : $HOST_REPO_DIR (mounted ro)"
 fi
 echo "  Runtime      : $DOCKER_RUNTIME (inner dockerd, no host socket)"
-echo "  Claude binary: $CLAUDE_BINARY"
+echo "  Agent command: $AGENT_CMD"
 echo ""
 
 if [[ -n "$WORKTREE_NAME" ]]; then
@@ -225,21 +239,16 @@ exec docker run \
     \
     `# ---- Project / worktree mounts ----` \
     "${PROJECT_MOUNTS[@]}" \
-    -v "/tmp/claude:/tmp/claude:rw" \
     \
-    `# ---- Conditional mounts (creds, dotfiles, nix-resolved symlinks) ----` \
-    "${OPTIONAL_MOUNTS[@]}" \
-    \
-    `# ---- Claude binary itself ----` \
-    -v "$CLAUDE_BINARY:/home/claude/.local/bin/claude:ro" \
+    `# ---- Caller-supplied bind mounts (agent binary, configs, creds, ...) ----` \
+    ${OPTIONAL_MOUNTS[@]+"${OPTIONAL_MOUNTS[@]}"} \
     \
     `# ---- Environment ----` \
     -e "HOME=/home/claude" \
     -e "TERM=${TERM:-xterm-256color}" \
-    -e "NODE_OPTIONS=--max-old-space-size=4096" \
-    -e "NuGetPackageSourceCredentials_red_gate_vsts_main_v3=${NuGetPackageSourceCredentials_red_gate_vsts_main_v3:-}" \
-    "${EXTRA_ENV[@]}" \
+    -e "SANDBOX_AGENT_CMD=$AGENT_CMD" \
+    ${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"} \
     \
     "$BUILT_IMAGE" \
     \
-    -- "${AGENT_ARGS[@]}"
+    -- ${AGENT_ARGS[@]+"${AGENT_ARGS[@]}"}
