@@ -7,11 +7,11 @@ set -euo pipefail
 # subuid). Responsibilities:
 #   1. Start the inner Docker daemon. Under --runtime=sysbox-runc this dockerd
 #      runs nested and unprivileged — there is no host socket involved.
-#   2. Drop to the unprivileged `claude` user and launch Claude via an
-#      interactive bash rcfile so Ctrl-Z suspends Claude to a shell (fg to
+#   2. Drop to the unprivileged `claude` user and launch the agent via an
+#      interactive bash rcfile so Ctrl-Z suspends it to a shell (fg to
 #      resume) — same trick as the old run-claude-docker.sh.
 #
-# Args: everything after `--` is forwarded to claude.
+# Args: everything after `--` is forwarded to the agent.
 
 # ---------- start inner dockerd ----------
 
@@ -48,36 +48,39 @@ fi
 # tamper with it. Also force agent-spawned containers through the proxy.
 echo "WARN: Phase A — network egress is NOT restricted yet. Treat as open." >&2
 
-# ---------- drop privileges and launch claude ----------
+# ---------- drop privileges and launch the agent ----------
 # See run-claude-docker.sh for the full explanation of why `bash -c` can't
 # support Ctrl-Z and the rcfile/PROMPT_COMMAND trick is needed.
+#
+# The agent command itself is still hardcoded to Claude; generalising it (and
+# the `claude` user/home below) to other agents is deferred.
 
 shift  # consume the "--" separator
 
-CLAUDE_CMD="claude --dangerously-skip-permissions"
+AGENT_CMD="claude --dangerously-skip-permissions"
 for arg in "$@"; do
-    CLAUDE_CMD+=" $(printf '%q' "$arg")"
+    AGENT_CMD+=" $(printf '%q' "$arg")"
 done
 
-CLAUDE_RCFILE="/tmp/claude-bashrc"
-cat > "$CLAUDE_RCFILE" <<RCEOF
+AGENT_RCFILE="/tmp/agent-bashrc"
+cat > "$AGENT_RCFILE" <<RCEOF
 [ -f /etc/bash.bashrc ] && . /etc/bash.bashrc
 [ -f ~/.bashrc ] && . ~/.bashrc
 
-_launch_claude() {
+_launch_agent() {
     unset PROMPT_COMMAND
-    $CLAUDE_CMD
+    $AGENT_CMD
     local rc=\$?
     if jobs -s | grep -q .; then
-        echo "(Claude suspended — type 'fg' to resume, 'exit' to quit)"
+        echo "(agent suspended — type 'fg' to resume, 'exit' to quit)"
         return
     fi
     exit "\$rc"
 }
-PROMPT_COMMAND=_launch_claude
+PROMPT_COMMAND=_launch_agent
 RCEOF
-chown claude:claude "$CLAUDE_RCFILE"
+chown claude:claude "$AGENT_RCFILE"
 
 export PATH=$PATH:/home/claude/.local/bin
 
-exec runuser -u claude -- bash --rcfile "$CLAUDE_RCFILE" -i
+exec runuser -u claude -- bash --rcfile "$AGENT_RCFILE" -i

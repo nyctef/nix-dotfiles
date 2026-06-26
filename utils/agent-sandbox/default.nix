@@ -6,13 +6,13 @@
 # as it does when run straight from the repo. No env-var bridge needed.
 #
 # Layout in $out:
-#   bin/run-claude-sandbox            -> makeWrapper shim (sets PATH, execs ↓)
-#   libexec/claude-sandbox/
-#     run-claude-sandbox.sh           <- BASH_SOURCE points here; siblings below
+#   bin/run-agent-sandbox             -> makeWrapper shim (sets PATH, execs ↓)
+#   libexec/agent-sandbox/
+#     run-agent-sandbox.sh            <- BASH_SOURCE points here; siblings below
 #     Dockerfile
 #     entrypoint.sh
 pkgs.stdenv.mkDerivation {
-  name = "run-claude-sandbox";
+  name = "run-agent-sandbox";
 
   src = ./.;
 
@@ -21,13 +21,13 @@ pkgs.stdenv.mkDerivation {
   dontBuild = true;
 
   installPhase = ''
-    mkdir -p $out/libexec/claude-sandbox $out/bin
-    cp run-claude-sandbox.sh Dockerfile entrypoint.sh $out/libexec/claude-sandbox/
-    chmod +x $out/libexec/claude-sandbox/run-claude-sandbox.sh \
-             $out/libexec/claude-sandbox/entrypoint.sh
+    mkdir -p $out/libexec/agent-sandbox $out/bin
+    cp run-agent-sandbox.sh Dockerfile entrypoint.sh $out/libexec/agent-sandbox/
+    chmod +x $out/libexec/agent-sandbox/run-agent-sandbox.sh \
+             $out/libexec/agent-sandbox/entrypoint.sh
 
-    makeWrapper $out/libexec/claude-sandbox/run-claude-sandbox.sh \
-      $out/bin/run-claude-sandbox \
+    makeWrapper $out/libexec/agent-sandbox/run-agent-sandbox.sh \
+      $out/bin/run-agent-sandbox \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.docker pkgs.coreutils pkgs.git ]}
   '';
 }

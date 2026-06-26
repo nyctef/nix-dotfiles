@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Run Claude Code (YOLO mode) inside a sysbox-isolated sandbox.
+# Run an AI coding agent (e.g. Claude Code; pi-dev later) in YOLO mode inside a
+# sysbox-isolated sandbox.
 #
 # This is the NEW hardened path, developed alongside the working
-# run-claude-docker.sh (which stays untouched). See SANDBOX-PLAN.md.
+# run-claude-docker.sh (which stays untouched). See README.md.
 #
 # Differences from run-claude-docker.sh:
 #   - Container runs under --runtime=sysbox-runc (unprivileged, real UID
@@ -17,36 +18,41 @@ set -euo pipefail
 # Phase A scope: ergonomics + isolation. Network egress is NOT yet restricted
 # (Phase B). Credentials are still mounted from the host (Phase C).
 #
-# Usage: run-claude-sandbox.sh [--worktree <name>] [claude args...]
+# NOTE: which agent runs is still hardcoded to Claude (the `claude` binary, user
+# and home dir below, plus the entrypoint command). Generalising that to other
+# agents (pi-dev) is deferred — only the sandbox-infrastructure names are
+# generic so far.
+#
+# Usage: run-agent-sandbox.sh [--worktree <name>] [agent args...]
 #   Run from any project directory — it mounts $PWD as the working dir.
 
 # The launcher's support files (Dockerfile, entrypoint.sh) live alongside this
 # script — both in the repo checkout and in the Nix output (default.nix copies
-# the whole folder into $out/libexec/claude-sandbox), so this resolves
+# the whole folder into $out/libexec/agent-sandbox), so this resolves
 # correctly in both cases.
 SUPPORT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ---------- parse options ----------
 
 WORKTREE_NAME=""
-CLAUDE_ARGS=()
+AGENT_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --worktree)
             WORKTREE_NAME="$2"
             shift 2
             ;;
-        *)  CLAUDE_ARGS+=("$1"); shift ;;
+        *)  AGENT_ARGS+=("$1"); shift ;;
     esac
 done
 
 # ---------- configuration ----------
 
-BUILT_IMAGE="claude-sandbox"
-CONTAINER_NAME="claude-sandbox-$$"
+BUILT_IMAGE="agent-sandbox"
+CONTAINER_NAME="agent-sandbox-$$"
 DOCKER_RUNTIME="sysbox-runc"
 # Per-instance inner data-root volume — unique per run, removed on exit.
-DATA_VOLUME="claude-sandbox-varlib-$$"
+DATA_VOLUME="agent-sandbox-varlib-$$"
 
 HOST_REPO_DIR="$PWD"
 CLAUDE_BINARY="$(readlink -f ~/.local/bin/claude)"
@@ -186,7 +192,7 @@ trap cleanup EXIT
 
 # ---------- run ----------
 
-echo "Starting Claude Code in sysbox sandbox..."
+echo "Starting agent in sysbox sandbox..."
 echo "  Working dir  : $HOST_PROJECT_DIR"
 if [[ -n "$WORKTREE_NAME" ]]; then
 echo "  Worktree     : $WORKTREE_NAME (branch from $(git -C "$HOST_REPO_DIR" rev-parse --short HEAD))"
@@ -236,4 +242,4 @@ exec docker run \
     \
     "$BUILT_IMAGE" \
     \
-    -- "${CLAUDE_ARGS[@]}"
+    -- "${AGENT_ARGS[@]}"
