@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# In-container entrypoint for the sysbox sandbox.
+#
+# Runs as root (container UID 0, which sysbox remaps to an unprivileged host
+# subuid). Responsibilities:
+#   1. Start the inner Docker daemon. Under --runtime=sysbox-runc this dockerd
+#      runs nested and unprivileged — there is no host socket involved.
+#   2. Drop to the unprivileged `claude` user and launch Claude via an
+#      interactive bash rcfile so Ctrl-Z suspends Claude to a shell (fg to
+#      resume) — same trick as the old run-claude-docker.sh.
+#
+# Args: everything after `--` is forwarded to claude.
+
+# ---------- start inner dockerd ----------
+
+echo "Starting inner Docker daemon (nested, via sysbox)..."
+
+# /var/lib/docker is a per-instance volume mounted by the launcher so parallel
+# agents never share a data-root.
+dockerd >/var/log/dockerd.log 2>&1 &
+DOCKERD_PID=$!
+
+# Wait for the daemon socket to come up.
+for _ in $(seq 1 30); do
+    if docker info >/dev/null 2>&1; then
+        echo "Inner dockerd ready."
+        break
+    fi
+    if ! kill -0 "$DOCKERD_PID" 2>/dev/null; then
+        echo "ERROR: inner dockerd exited during startup. Log tail:" >&2
+        tail -n 40 /var/log/dockerd.log >&2 || true
+        exit 1
+    fi
+    sleep 1
+done
+
+if ! docker info >/dev/null 2>&1; then
+    echo "ERROR: inner dockerd did not become ready within 30s. Log tail:" >&2
+    tail -n 40 /var/log/dockerd.log >&2 || true
+    exit 1
+fi
+
+# ---------- TODO Phase B ----------
+# Configure the mandatory egress floor (default-deny iptables) + start the
+# in-container L7 proxy here, BEFORE dropping privileges, so claude cannot
+# tamper with it. Also force agent-spawned containers through the proxy.
+echo "WARN: Phase A — network egress is NOT restricted yet. Treat as open." >&2
+
+# ---------- drop privileges and launch claude ----------
+# See run-claude-docker.sh for the full explanation of why `bash -c` can't
+# support Ctrl-Z and the rcfile/PROMPT_COMMAND trick is needed.
+
+shift  # consume the "--" separator
+
+CLAUDE_CMD="claude --dangerously-skip-permissions"
+for arg in "$@"; do
+    CLAUDE_CMD+=" $(printf '%q' "$arg")"
+done
+
+CLAUDE_RCFILE="/tmp/claude-bashrc"
+cat > "$CLAUDE_RCFILE" <<RCEOF
+[ -f /etc/bash.bashrc ] && . /etc/bash.bashrc
+[ -f ~/.bashrc ] && . ~/.bashrc
+
+_launch_claude() {
+    unset PROMPT_COMMAND
+    $CLAUDE_CMD
+    local rc=\$?
+    if jobs -s | grep -q .; then
+        echo "(Claude suspended — type 'fg' to resume, 'exit' to quit)"
+        return
+    fi
+    exit "\$rc"
+}
+PROMPT_COMMAND=_launch_claude
+RCEOF
+chown claude:claude "$CLAUDE_RCFILE"
+
+export PATH=$PATH:/home/claude/.local/bin
+
+exec runuser -u claude -- bash --rcfile "$CLAUDE_RCFILE" -i
