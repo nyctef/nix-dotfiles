@@ -4,16 +4,33 @@ set -euo pipefail
 # In-container entrypoint for the sysbox sandbox.
 #
 # Runs as root (container UID 0, which sysbox remaps to an unprivileged host
-# subuid). Responsibilities:
-#   1. Start the inner Docker daemon. Under --runtime=sysbox-runc this dockerd
-#      runs nested and unprivileged — there is no host socket involved.
-#   2. Drop to the unprivileged `claude` user and launch the agent via an
-#      interactive bash rcfile so Ctrl-Z suspends it to a shell (fg to
-#      resume) — same trick as the old run-claude-docker.sh.
+# subuid). Startup sequence is ordered to close the root-escalation gap:
+#
+#   1. Start the egress proxy + install the MITM CA (before dockerd!)
+#   2. Start the inner Docker daemon (picks up MITM CA from system store)
+#   3. Activate the iptables firewall (ALL uids go through the proxy)
+#   4. Drop to the unprivileged `claude` user and launch the agent
+#
+# This ordering ensures that even if the agent escalates to root (via docker
+# group membership or sudo), root traffic goes through the L7 proxy.
 #
 # Args: everything after `--` is forwarded to the agent.
 
-# ---------- start inner dockerd ----------
+FIREWALL_SCRIPT="/usr/local/bin/init-egress-firewall.sh"
+FIREWALL_DISABLED="${SANDBOX_DISABLE_FIREWALL:-}"
+
+# ---------- 1. start egress proxy + install CA ----------
+# Must happen BEFORE dockerd so dockerd trusts the MITM CA from its very
+# first registry connection (Go's crypto/x509 reads the system cert bundle
+# per-connection, not cached at process start).
+
+if [[ "$FIREWALL_DISABLED" == "1" ]]; then
+    echo "WARN: egress firewall disabled (SANDBOX_DISABLE_FIREWALL=1)." >&2
+else
+    "$FIREWALL_SCRIPT" start-proxy
+fi
+
+# ---------- 2. start inner dockerd ----------
 
 echo "Starting inner Docker daemon (nested, via sysbox)..."
 
@@ -42,23 +59,17 @@ if ! docker info >/dev/null 2>&1; then
     exit 1
 fi
 
-# ---------- Phase B: L7 egress firewall ----------
-# Configure the mandatory egress floor (default-deny iptables) + start the
-# in-container L7 proxy, BEFORE dropping privileges, so claude cannot tamper.
-if [[ "${SANDBOX_DISABLE_FIREWALL:-}" == "1" ]]; then
-    echo "WARN: egress firewall disabled (SANDBOX_DISABLE_FIREWALL=1)." >&2
-else
-    /usr/local/bin/init-egress-firewall.sh
+# ---------- 3. activate iptables firewall ----------
+# Now that dockerd is up and trusts the CA, activate the iptables rules that
+# redirect ALL traffic (including root) through the proxy.
+
+if [[ "$FIREWALL_DISABLED" != "1" ]]; then
+    "$FIREWALL_SCRIPT" start-firewall
 fi
 
-# ---------- drop privileges and launch the agent ----------
+# ---------- 4. drop privileges and launch the agent ----------
 # See run-claude-docker.sh for the full explanation of why `bash -c` can't
 # support Ctrl-Z and the rcfile/PROMPT_COMMAND trick is needed.
-#
-# The base agent command is supplied by the launcher via $SANDBOX_AGENT_CMD
-# (e.g. "claude --dangerously-skip-permissions"); args after `--` are appended.
-# The `claude` user/home below is still fixed (image-level); generalising it is
-# deferred.
 
 AGENT_CMD="${SANDBOX_AGENT_CMD:?SANDBOX_AGENT_CMD not set by the launcher}"
 

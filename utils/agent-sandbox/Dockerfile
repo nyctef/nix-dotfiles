@@ -111,11 +111,13 @@ RUN JJ_VERSION="0.40.0" && \
 # proxy traffic (free egress) from agent traffic (forced through proxy).
 RUN useradd --system --no-create-home --shell /usr/sbin/nologin egressproxy
 
-# Sudo for claude — package management only (so the agent can apt-get extras).
-# NOTE: dockerd is started by the entrypoint as root before privileges drop, so
-# the agent does not need sudo for docker. The firewall and proxy run as root
-# and egressproxy respectively — NOT in claude's sudoers.
-RUN echo "claude ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/dpkg" \
+# Sudo for claude — apt-get only (so the agent can install extras at runtime).
+# Deliberately excludes dpkg (direct .deb install → attacker-controlled postinst
+# runs as root) and apt (has features like edit-sources that are too broad).
+# Even with this, `apt-get install` postinst scripts run as root, but root
+# traffic goes through the L7 proxy too (no uid 0 exemption), so the
+# exfiltration path is still blocked.
+RUN echo "claude ALL=(ALL) NOPASSWD: /usr/bin/apt-get" \
     > /etc/sudoers.d/claude && \
     chmod 0440 /etc/sudoers.d/claude
 

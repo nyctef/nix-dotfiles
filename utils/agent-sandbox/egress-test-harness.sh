@@ -360,7 +360,56 @@ else
     pass "sudo root shell denied for claude user"
 fi
 
-# ── 12. Domain fronting (Host ≠ SNI) ────────────────────────────────────────
+# sudo dpkg should be denied (tightened sudoers)
+if sudo -n dpkg --version 2>/dev/null; then
+    fail "claude can sudo dpkg (allows malicious .deb postinst)"
+else
+    pass "sudo dpkg denied for claude user"
+fi
+
+# sudo apt-get should be allowed (legitimate use)
+if sudo -n apt-get --version >/dev/null 2>&1; then
+    pass "sudo apt-get allowed (expected)"
+else
+    fail "sudo apt-get denied (agent needs this for installing packages)"
+fi
+
+# ── 12. Root escalation does not bypass proxy ───────────────────────────────
+
+section "Root escalation (gaining root must not bypass proxy)"
+
+# docker run as root inside a privileged container — the classic escalation.
+# Even though claude is in the docker group, root traffic should still go
+# through the proxy.
+if docker run --rm alpine sh -c \
+    'apk add --no-cache curl >/dev/null 2>&1 && curl -sf --connect-timeout 5 https://example.com' \
+    >/dev/null 2>&1; then
+    fail "nested root container reached blocked host (uid 0 bypass!)"
+else
+    pass "nested root container blocked from example.com"
+fi
+
+# Root traffic from docker exec (simulates gaining a root shell)
+if docker run --rm --user root alpine sh -c \
+    'apk add --no-cache curl >/dev/null 2>&1 && curl -sf --connect-timeout 5 https://example.com' \
+    >/dev/null 2>&1; then
+    fail "nested --user root container reached blocked host"
+else
+    pass "nested --user root container blocked from example.com"
+fi
+
+# Verify that root CAN reach allowed hosts (dockerd needs this for pulls)
+if docker run --rm alpine sh -c \
+    'apk add --no-cache curl >/dev/null 2>&1 && curl -sf --connect-timeout 10 https://api.github.com/zen' \
+    >/dev/null 2>&1; then
+    pass "nested container can reach allowed host (api.github.com)"
+else
+    # This might fail because the nested container doesn't have the MITM CA.
+    # That's acceptable — the important thing is that blocked hosts are blocked.
+    skip "nested container → allowed host failed (expected: no MITM CA in nested image)"
+fi
+
+# ── 13. Domain fronting (Host ≠ SNI) ────────────────────────────────────────
 
 section "Domain fronting detection (Host header ≠ SNI)"
 
@@ -391,7 +440,7 @@ else
     skip "domain fronting — couldn't resolve github.com IP"
 fi
 
-# ── 13. Inner Docker (sysbox nested containers) ─────────────────────────────
+# ── 14. Inner Docker (sysbox nested containers) ─────────────────────────────
 
 section "Inner Docker (sysbox nested containers)"
 
@@ -405,38 +454,17 @@ else
         fail "inner dockerd not reachable"
     fi
 
-    # Pull and run hello-world
+    # Pull and run hello-world — tests that dockerd can reach Docker Hub
+    # through the proxy (registry-1.docker.io is in the allowlist, and
+    # dockerd trusts the MITM CA because it was installed before dockerd started)
     if docker run --rm hello-world >/dev/null 2>&1; then
-        pass "docker run hello-world succeeded (nested container)"
+        pass "docker run hello-world succeeded (dockerd pulls through proxy)"
     else
-        # Maybe hello-world isn't cached and pull is blocked?
-        # registry-1.docker.io should be in the allowlist
-        fail "docker run hello-world failed"
-    fi
-
-    # Test that a nested container can reach allowed hosts
-    if docker run --rm alpine:latest sh -c \
-        "apk add --no-cache curl >/dev/null 2>&1 && curl -sf --connect-timeout 5 https://api.github.com/zen" \
-        >/dev/null 2>&1; then
-        pass "nested container can reach allowed host (api.github.com)"
-    else
-        # This is expected to fail (known caveat: nested containers get their
-        # own netns) — mark as informational rather than hard fail
-        skip "nested container → allowed host (expected: own netns, may not route through proxy)"
-    fi
-
-    # Test that a nested container CANNOT reach blocked hosts
-    if docker run --rm alpine:latest sh -c \
-        "apk add --no-cache curl >/dev/null 2>&1 && curl -sf --connect-timeout 5 https://example.com" \
-        >/dev/null 2>&1; then
-        # This is the known caveat — nested containers might bypass the proxy
-        skip "nested container → blocked host NOT blocked (known caveat: own netns)"
-    else
-        pass "nested container → blocked host (example.com) blocked"
+        fail "docker run hello-world failed (dockerd can't pull through proxy?)"
     fi
 fi
 
-# ── 14. Proxy log visibility ────────────────────────────────────────────────
+# ── 15. Proxy log visibility ────────────────────────────────────────────────
 
 section "Diagnostics"
 
