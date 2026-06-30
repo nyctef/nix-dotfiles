@@ -36,7 +36,13 @@
       set -g focus-events on
 
       # allow modified Enter/key combos (e.g. shift+enter) to pass through
-      set -g extended-keys on
+      # Use 'always' instead of 'on' so tmux forces mode 1 (CSI-u for keys
+      # lacking a well-known representation) unconditionally for all panes.
+      # With 'on', tmux only activates extended keys for panes whose app sends
+      # an explicit request, which breaks when claude runs inside docker: the
+      # request travels through an extra PTY layer and tmux doesn't see/honour
+      # it, so shift-enter arrives as plain enter.
+      set -g extended-keys always
       set -g extended-keys-format csi-u
 
       # let apps (e.g. Claude Code) forward DCS-wrapped OSC 52 clipboard
