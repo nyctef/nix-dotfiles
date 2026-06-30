@@ -34,15 +34,22 @@ tcurl() {
     HTTP_STATUS="$CURL_OUT"
 }
 
-# Expect curl to succeed (2xx) for an allowed host.
+# Expect curl to connect to an allowed host. We care that the proxy allowed
+# the connection, not that the server returned 200 — a 404 from the real server
+# is fine (it means the proxy let it through). curl -sf fails on both connection
+# errors AND HTTP errors (exit 22), so we use -o /dev/null -w '%{http_code}'
+# and check: any HTTP status > 0 means the proxy allowed it.
 expect_allowed() {
     local label="$1" url="$2"; shift 2
-    local body status
-    body="$(curl -sf --connect-timeout 5 --max-time 10 "$@" "$url" 2>&1)" && status=0 || status=$?
-    if [[ $status -eq 0 ]]; then
-        pass "$label"
+    local http_code
+    http_code="$(curl -s -o /dev/null -w '%{http_code}' \
+        --connect-timeout 5 --max-time 10 "$@" "$url" 2>/dev/null)" || true
+    if [[ "$http_code" =~ ^[0-9]+$ && "$http_code" -gt 0 && "$http_code" -ne 403 ]]; then
+        pass "$label (HTTP $http_code)"
+    elif [[ "$http_code" == "403" ]]; then
+        fail "$label (HTTP 403 — proxy blocked it)"
     else
-        fail "$label (curl exit=$status)"
+        fail "$label (connection failed, http_code=$http_code)"
     fi
 }
 
@@ -95,14 +102,8 @@ expect_allowed "repo1.maven.org (Maven)" \
 section "Subdomain matching (subdomains of allowed domains)"
 
 expect_allowed "objects.githubusercontent.com (GitHub subdomain)" \
-    "https://objects.githubusercontent.com/" \
-    -o /dev/null -w '%{http_code}'
-# We just need the connection to succeed (even a 404 means the proxy allowed it)
+    "https://objects.githubusercontent.com/"
 
-# For subdomain test, we need a domain whose parent is in the list.
-# sentry.io is in the list, so o123.ingest.sentry.io should also be allowed
-# (but the host may not exist — connection success through proxy is what matters).
-# Instead, test a real subdomain:
 expect_allowed "raw.githubusercontent.com (GitHub subdomain)" \
     "https://raw.githubusercontent.com/"
 
@@ -213,26 +214,18 @@ else
     fi
 fi
 
-# Try SMTP (port 25)
-if command -v nc &>/dev/null; then
-    if nc -z -w 3 smtp.gmail.com 25 2>/dev/null; then
-        fail "TCP 25 (SMTP) is open — should be blocked"
-    else
-        pass "TCP 25 (SMTP) blocked"
-    fi
+# Try SMTP (port 25) — use /dev/tcp as fallback
+if timeout 3 bash -c 'echo >/dev/tcp/smtp.gmail.com/25' 2>/dev/null; then
+    fail "TCP 25 (SMTP) is open — should be blocked"
 else
-    skip "TCP 25 (SMTP) — no nc"
+    pass "TCP 25 (SMTP) blocked"
 fi
 
 # Try arbitrary high port
-if command -v nc &>/dev/null; then
-    if nc -z -w 3 example.com 8443 2>/dev/null; then
-        fail "TCP 8443 to example.com is open — should be blocked"
-    else
-        pass "TCP 8443 (arbitrary) blocked"
-    fi
+if timeout 3 bash -c 'echo >/dev/tcp/example.com/8443' 2>/dev/null; then
+    fail "TCP 8443 to example.com is open — should be blocked"
 else
-    skip "TCP 8443 — no nc"
+    pass "TCP 8443 (arbitrary) blocked"
 fi
 
 # ── 9. DNS resolution ───────────────────────────────────────────────────────
@@ -337,24 +330,34 @@ else
 fi
 
 # claude should not be able to modify the domain allowlist
-if echo "evil.com" >> /etc/firewall-domains.txt 2>/dev/null; then
+# (bash redirection errors go to stderr before 2>/dev/null on the `if`, so
+#  we wrap in a subshell to capture them)
+if (echo "evil.com" >> /etc/firewall-domains.txt) 2>/dev/null; then
     fail "claude can write to /etc/firewall-domains.txt (CRITICAL)"
 else
     pass "claude cannot modify /etc/firewall-domains.txt"
 fi
 
 # claude should not be able to overwrite the proxy addon
-if echo "pass" > /opt/egress-policy.py 2>/dev/null; then
+if (echo "pass" > /opt/egress-policy.py) 2>/dev/null; then
     fail "claude can overwrite /opt/egress-policy.py (CRITICAL)"
 else
     pass "claude cannot modify /opt/egress-policy.py"
 fi
 
-# claude should not be able to modify iptables via sudo
-if sudo iptables -F 2>/dev/null; then
+# claude should not be able to modify iptables via sudo.
+# -n = non-interactive (fail immediately, never prompt for password).
+if sudo -n iptables -F 2>/dev/null; then
     fail "claude can sudo iptables -F (CRITICAL)"
 else
     pass "sudo iptables denied for claude user"
+fi
+
+# claude should not be able to sudo to root shell
+if sudo -n bash -c 'whoami' 2>/dev/null | grep -q root; then
+    fail "claude can sudo to root shell (CRITICAL)"
+else
+    pass "sudo root shell denied for claude user"
 fi
 
 # ── 12. Domain fronting (Host ≠ SNI) ────────────────────────────────────────

@@ -139,6 +139,9 @@ UPSTREAM_DNS="${HOST_DNS:-$HOST_IP}"
 # The proxy user's own outbound traffic is excluded (otherwise infinite loop).
 iptables -t nat -N SANDBOX_REDIRECT 2>/dev/null || iptables -t nat -F SANDBOX_REDIRECT
 iptables -t nat -A SANDBOX_REDIRECT -m owner --uid-owner "$PROXY_UID" -j RETURN
+# Root (uid 0) gets free egress — dockerd, containerd, and system services
+# do their own TLS and won't trust the MITM CA.
+iptables -t nat -A SANDBOX_REDIRECT -m owner --uid-owner 0 -j RETURN
 # Don't redirect loopback or local traffic
 iptables -t nat -A SANDBOX_REDIRECT -d 127.0.0.0/8 -j RETURN
 iptables -t nat -A SANDBOX_REDIRECT -d 172.16.0.0/12 -j RETURN
