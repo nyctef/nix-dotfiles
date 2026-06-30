@@ -8,6 +8,7 @@
 
 let
   run-claude-docker = import ../utils/run-claude-docker.nix { inherit pkgs; };
+  run-agent-sandbox = import ../utils/agent-sandbox/default.nix { inherit pkgs; };
   waitcat = import ../utils/waitcat.nix { inherit pkgs; };
 
   # A dedicated, long-lived OAuth token for Claude running inside the docker
@@ -75,6 +76,7 @@ in
       jq
       socat
       run-claude-docker
+      run-agent-sandbox
     ];
 
     # Install claude via native installer if not present
