@@ -127,19 +127,15 @@ trick) — we don't refactor the old script to share code yet.
 
 ---
 
-## Current status: UNTESTED Phase A scaffold
+## Current status: Phase A proven; launchers on PATH
 
-Not yet wired into `users/claude-code.nix` and not yet run end-to-end. To try it
-from a checkout (without Nix packaging) — the launcher finds its `Dockerfile`
-and `entrypoint.sh` siblings via `BASH_SOURCE`, so just run it by path:
+- ✅ Inner dockerd starts under sysbox-runc (validated on `tachikoma`)
+- ✅ `docker run hello-world` works nested inside the agent container
+- ✅ `default.nix` wired into `users/claude-code.nix` — `run-claude-sandbox`
+  and `run-agent-sandbox` are on `PATH` after `home-manager switch`
 
-```sh
-utils/agent-sandbox/run-claude-sandbox.sh
-```
-
-Next steps: validate inner dockerd starts under sysbox, confirm
-`docker run hello-world` works inside, then wire `default.nix` into
-`home.packages`.
+Next step: **Phase B** — replace L3/L4 IP allowlisting with L7
+hostname/SNI egress policy (iptables mandatory floor + in-container proxy).
 
 ---
 
