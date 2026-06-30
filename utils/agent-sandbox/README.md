@@ -27,6 +27,8 @@ Unlike the old single-file script, the pieces are split into separate files:
 | `egress-policy.py`      | mitmproxy addon — enforces hostname allowlist (SNI + Host), anti-fronting |
 | `init-egress-firewall.sh` | in-container: starts proxy, configures iptables, self-verifies        |
 | `entrypoint.sh`         | in-container: start inner dockerd, init firewall, run agent as `claude` |
+| `test-sandbox-egress.sh` | test wrapper — drives the core with a test harness as the "agent"     |
+| `egress-test-harness.sh` | in-container test suite — exercises every layer of the network stack   |
 
 ## Core idea
 
