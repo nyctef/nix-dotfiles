@@ -8,9 +8,10 @@
 # localhost/bind-mount ergonomics, and the test containers are nested children
 # of the agent container, not host siblings.
 #
-# Phase A scope: ergonomics only. Network egress is NOT yet restricted in this
-# image (that is Phase B: an in-container L7 proxy + mandatory iptables floor).
-# Until then, treat the network as open.
+# Phase B: L7 egress policy via transparent mitmproxy + iptables mandatory
+# floor. The proxy owns the hostname allowlist (SNI + Host header), rejects
+# domain fronting, and is kernel-enforced via iptables uid-owner REDIRECT —
+# the agent cannot bypass it.
 
 FROM ubuntu:24.04
 
@@ -40,9 +41,8 @@ RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/mic
 
 # One big install. NOTE vs old image:
 #   + docker-ce, containerd.io  -> the inner daemon (was: docker-ce-cli only)
-#   - dnsmasq/ipset/aggregate   -> dropped; Phase B replaces the L3/L4 ipset
-#                                  firewall with an L7 proxy. iptables kept as
-#                                  the future mandatory floor.
+#   + python3-pip               -> for mitmproxy (L7 egress proxy)
+#   - dnsmasq/ipset/aggregate   -> dropped; replaced by L7 proxy
 # apt lists are intentionally left in place so the agent can install extras at
 # runtime without a re-fetch.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -52,7 +52,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         gh \
         jq \
         less \
-        python3 python-is-python3 \
+        python3 python-is-python3 python3-pip \
         procps \
         sudo \
         iptables \
@@ -65,6 +65,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         default-jdk-headless \
         maven \
         powershell
+
+# mitmproxy — installed system-wide via pip (--break-system-packages is fine
+# in a container). Pinned version for reproducibility.
+RUN pip3 install --break-system-packages mitmproxy==11.1.3
 
 # Non-root user matching the host UID (1000). Ubuntu 24.04 ships a 'ubuntu'
 # user at 1000; remove it so we can take that UID. Add claude to the docker
@@ -103,10 +107,14 @@ RUN JJ_VERSION="0.40.0" && \
     chmod +x /usr/local/bin/jj && \
     rm /tmp/jj.tar.gz
 
+# Dedicated user for the egress proxy — iptables uid-owner rules distinguish
+# proxy traffic (free egress) from agent traffic (forced through proxy).
+RUN useradd --system --no-create-home --shell /usr/sbin/nologin egressproxy
+
 # Sudo for claude — package management only (so the agent can apt-get extras).
 # NOTE: dockerd is started by the entrypoint as root before privileges drop, so
-# the agent does not need sudo for docker. Phase B will add the firewall here
-# and must NOT be in claude's sudoers.
+# the agent does not need sudo for docker. The firewall and proxy run as root
+# and egressproxy respectively — NOT in claude's sudoers.
 RUN echo "claude ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/dpkg" \
     > /etc/sudoers.d/claude && \
     chmod 0440 /etc/sudoers.d/claude
@@ -117,8 +125,13 @@ RUN mkdir -p /home/claude/.nuget /home/claude/.config/NuGet /home/claude/.local 
     ln -s /home/claude/.config/NuGet /home/claude/.nuget/NuGet && \
     chown -R claude:claude /home/claude/.nuget /home/claude/.config /home/claude/.local
 
-# Entrypoint: starts the inner dockerd, then drops to the claude user and
-# launches Claude via the interactive-rcfile trick (Ctrl-Z support).
+# L7 egress policy: domain allowlist + proxy addon + firewall init script.
+COPY firewall-domains.txt /etc/firewall-domains.txt
+COPY --chmod=0644 egress-policy.py /opt/egress-policy.py
+COPY --chmod=0755 init-egress-firewall.sh /usr/local/bin/init-egress-firewall.sh
+
+# Entrypoint: starts the inner dockerd, configures the egress firewall, then
+# drops to the claude user and launches the agent.
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/entrypoint.sh
 
 WORKDIR /home/claude/project

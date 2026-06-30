@@ -28,9 +28,10 @@ pkgs.stdenv.mkDerivation {
   installPhase = ''
     libexec=$out/libexec/agent-sandbox
     mkdir -p $libexec $out/bin
-    cp run-claude-sandbox.sh run-agent-sandbox.sh Dockerfile entrypoint.sh $libexec/
+    cp run-claude-sandbox.sh run-agent-sandbox.sh Dockerfile entrypoint.sh \
+       firewall-domains.txt egress-policy.py init-egress-firewall.sh $libexec/
     chmod +x $libexec/run-claude-sandbox.sh $libexec/run-agent-sandbox.sh \
-             $libexec/entrypoint.sh
+             $libexec/entrypoint.sh $libexec/init-egress-firewall.sh
 
     for entry in run-claude-sandbox run-agent-sandbox; do
       makeWrapper $libexec/$entry.sh $out/bin/$entry \

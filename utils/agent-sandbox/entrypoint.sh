@@ -42,11 +42,14 @@ if ! docker info >/dev/null 2>&1; then
     exit 1
 fi
 
-# ---------- TODO Phase B ----------
+# ---------- Phase B: L7 egress firewall ----------
 # Configure the mandatory egress floor (default-deny iptables) + start the
-# in-container L7 proxy here, BEFORE dropping privileges, so claude cannot
-# tamper with it. Also force agent-spawned containers through the proxy.
-echo "WARN: Phase A — network egress is NOT restricted yet. Treat as open." >&2
+# in-container L7 proxy, BEFORE dropping privileges, so claude cannot tamper.
+if [[ "${SANDBOX_DISABLE_FIREWALL:-}" == "1" ]]; then
+    echo "WARN: egress firewall disabled (SANDBOX_DISABLE_FIREWALL=1)." >&2
+else
+    /usr/local/bin/init-egress-firewall.sh
+fi
 
 # ---------- drop privileges and launch the agent ----------
 # See run-claude-docker.sh for the full explanation of why `bash -c` can't
@@ -68,6 +71,7 @@ AGENT_RCFILE="/tmp/agent-bashrc"
 cat > "$AGENT_RCFILE" <<RCEOF
 [ -f /etc/bash.bashrc ] && . /etc/bash.bashrc
 [ -f ~/.bashrc ] && . ~/.bashrc
+[ -f /etc/profile.d/proxy-ca.sh ] && . /etc/profile.d/proxy-ca.sh
 
 _launch_agent() {
     unset PROMPT_COMMAND
@@ -84,5 +88,8 @@ RCEOF
 chown claude:claude "$AGENT_RCFILE"
 
 export PATH=$PATH:/home/claude/.local/bin
+
+# Source the proxy CA env vars so the agent's tools trust the MITM cert.
+[[ -f /etc/profile.d/proxy-ca.sh ]] && . /etc/profile.d/proxy-ca.sh
 
 exec runuser -u claude -- bash --rcfile "$AGENT_RCFILE" -i

@@ -17,8 +17,9 @@ set -euo pipefail
 #   - /var/lib/docker is a per-instance named volume so parallel agents never
 #     share an inner data-root.
 #
-# Phase A scope: ergonomics + isolation. Network egress is NOT yet restricted
-# (Phase B). Credentials are still passed from the host (Phase C).
+# Phase A: ergonomics + isolation (inner dockerd via sysbox).
+# Phase B: L7 egress policy (transparent mitmproxy + iptables mandatory floor).
+# Credentials are still passed from the host (Phase C).
 #
 # Usage:
 #   run-agent-sandbox.sh --agent-cmd <cmd> \
@@ -72,6 +73,12 @@ if [[ -z "$AGENT_CMD" ]]; then
 fi
 
 # ---------- configuration ----------
+
+# Auto-detect host DNS for the container's egress firewall (so dnsmasq/proxy
+# can reach the upstream resolver). WSL2 often uses a non-gateway DNS IP.
+if [[ -z "${HOST_DNS:-}" ]]; then
+    HOST_DNS="$(grep -m1 '^nameserver' /etc/resolv.conf | awk '{print $2}')" || true
+fi
 
 BUILT_IMAGE="agent-sandbox"
 CONTAINER_NAME="agent-sandbox-$$"
@@ -247,6 +254,8 @@ exec docker run \
     -e "HOME=/home/claude" \
     -e "TERM=${TERM:-xterm-256color}" \
     -e "SANDBOX_AGENT_CMD=$AGENT_CMD" \
+    -e "SANDBOX_DISABLE_FIREWALL=${SANDBOX_DISABLE_FIREWALL:-}" \
+    -e "HOST_DNS=${HOST_DNS:-}" \
     ${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"} \
     \
     "$BUILT_IMAGE" \
