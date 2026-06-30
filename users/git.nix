@@ -17,7 +17,10 @@
       commit.verbose = true;
 
       # use global hooks directory for user-level hooks
-      core.hooksPath = "${config.xdg.configHome}/git/hooks";
+      # Use "~" so git expands it to $HOME at runtime (path-type config value).
+      # Avoids baking in the host's absolute path, which breaks inside containers
+      # where $HOME differs (e.g. /home/claude vs /home/nixos).
+      core.hooksPath = "~/.config/git/hooks";
 
       # set default branch name for new repositories
       init.defaultBranch = "main";
