@@ -37,8 +37,48 @@ done
 # container and run as the agent command. It runs as the claude user, which is
 # exactly the threat model we're testing.
 
+# Phase C: generate the same placeholder configs a real wrapper would.
+PHASE_C_TMPDIR="$(mktemp -d)"
+cleanup_test() { rm -rf "$PHASE_C_TMPDIR"; }
+trap cleanup_test EXIT
+
+mkdir -p "$PHASE_C_TMPDIR/gh"
+cat > "$PHASE_C_TMPDIR/gh/hosts.yml" <<'GHEOF'
+github.com:
+    oauth_token: SANDBOX-PLACEHOLDER-GH-TOKEN
+    user: sandbox-agent
+    git_protocol: https
+GHEOF
+
+cat > "$PHASE_C_TMPDIR/git-credential-sandbox.sh" <<'GCEOF'
+#!/bin/sh
+host=""
+while IFS='=' read -r key value; do
+    [ "$key" = "host" ] && host="$value"
+done
+case "$host" in
+    github.com|*.github.com)
+        echo "protocol=https"
+        echo "host=$host"
+        echo "username=x-access-token"
+        echo "password=SANDBOX-PLACEHOLDER-GH-TOKEN"
+        ;;
+esac
+GCEOF
+chmod +x "$PHASE_C_TMPDIR/git-credential-sandbox.sh"
+
+mkdir -p "$PHASE_C_TMPDIR/gitconfig.d"
+cat > "$PHASE_C_TMPDIR/gitconfig.d/sandbox-credentials.inc" <<'GITEOF'
+[credential]
+    helper = /opt/sandbox/git-credential-sandbox.sh
+GITEOF
+
 exec "$HERE/run-agent-sandbox.sh" \
     --agent-cmd "bash /opt/egress-test-harness.sh" \
     --mount "ro:$HERE/egress-test-harness.sh:/opt/egress-test-harness.sh" \
+    --mount "ro:$PHASE_C_TMPDIR/gh:/home/claude/.config/gh" \
+    --mount "ro:$PHASE_C_TMPDIR/git-credential-sandbox.sh:/opt/sandbox/git-credential-sandbox.sh" \
+    --mount "ro:$PHASE_C_TMPDIR/gitconfig.d/sandbox-credentials.inc:/opt/sandbox/sandbox-credentials.inc" \
     --env "SKIP_DOCKER_TESTS=${SKIP_DOCKER:-}" \
+    --env "ANTHROPIC_API_KEY=SANDBOX-PLACEHOLDER-ANTHROPIC-KEY" \
     -- # no extra agent args

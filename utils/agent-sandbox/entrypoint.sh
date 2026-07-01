@@ -103,7 +103,13 @@ DCONF
     export NO_PROXY="$NO_PROXY"
 fi
 
-# ---------- 4. start inner dockerd ----------
+# ---------- 4. ensure sandbox helper directory ----------
+# Phase C: the credential helper and git config overlay are bind-mounted into
+# /opt/sandbox/ by the launcher. Ensure the directory exists and is readable.
+mkdir -p /opt/sandbox
+chmod 755 /opt/sandbox
+
+# ---------- 5. start inner dockerd ----------
 
 echo "Starting inner Docker daemon (nested, via sysbox)..."
 
@@ -132,7 +138,7 @@ if ! docker info >/dev/null 2>&1; then
     exit 1
 fi
 
-# ---------- 5. drop privileges and launch the agent ----------
+# ---------- 6. drop privileges and launch the agent ----------
 # See run-claude-docker.sh for the full explanation of why `bash -c` can't
 # support Ctrl-Z and the rcfile/PROMPT_COMMAND trick is needed.
 

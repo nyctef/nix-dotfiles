@@ -28,6 +28,8 @@ Unlike the old single-file script, the pieces are split into separate files:
 | `sidecar-entrypoint.sh` | in-sidecar: starts mitmproxy in forward mode, signals ready  |
 | `firewall-domains.txt`  | hostname allowlist — single source of truth for L7 egress policy        |
 | `egress-policy.py`      | mitmproxy addon — enforces hostname allowlist (SNI + Host), anti-fronting |
+| `cred-inject.py`        | mitmproxy addon — credential injection (placeholder → real swap) |
+| `credential-map.yaml`   | domain→service→env-var mapping for credential injection |
 | `entrypoint.sh`         | in-agent: install CA, configure proxy env, start inner dockerd, run agent |
 | `test-sandbox-egress.sh` | test wrapper — drives the core with a test harness as the "agent"     |
 | `egress-test-harness.sh` | in-container test suite — exercises every layer of the network stack   |
@@ -153,17 +155,26 @@ trick) — we don't refactor the old script to share code yet.
 - Proxy process, policy files, and domain allowlist are in the sidecar
   filesystem — agent cannot see, kill, or modify them.
 
-### Phase C — credential injection (keep secrets off the agent) — sbx model
-- Generate a per-run CA; install trust via the sbx env-var set
-  (`SSL_CERT_FILE`, `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS`)
-  + Java keytool import.
-- Proxy addon injects creds by **detected service** (domain→service table) and/or
-  **placeholder substitution** (agent holds a fake token, proxy swaps the real
-  one outbound). Real secrets read from host (env/keychain), never enter the VM.
-- Lets us stop mounting real creds (`~/.config/gh`, NuGet token, Anthropic) into
-  the container — resolves the existing TODOs in the launcher's mount block.
-- git over HTTPS with token injection; SSH (port 22) stays default-denied unless
-  explicitly allowed.
+### Phase C — credential injection (keep secrets off the agent)  ✅ scaffolded (untested)
+- **Credential map** (`credential-map.yaml`): declarative domain→service→env-var
+  mapping. Supports three injection modes: `github` (auto-detects API vs git
+  HTTPS), `basic_auth` (NuGet/VSTS feeds), `header` (Anthropic `x-api-key`).
+- **mitmproxy addon** (`cred-inject.py`): runs in the sidecar alongside
+  `egress-policy.py`. Reads real credentials from `SANDBOX_CRED_*` env vars
+  (present only in the sidecar), swaps placeholder tokens in outbound requests.
+- **Launcher plumbing** (`run-agent-sandbox.sh`): reads host credentials
+  (`gh auth token`, `ANTHROPIC_API_KEY`, NuGet PAT) and passes them to the
+  sidecar via `-e SANDBOX_CRED_*`. Agent container never sees them.
+- **Placeholder configs** (agent wrappers): synthetic `~/.config/gh/hosts.yml`,
+  git credential helper (`/opt/sandbox/git-credential-sandbox.sh`), and git
+  config overlay that returns placeholder tokens. NuGet and Anthropic env vars
+  set to placeholder values.
+- **Real credential mounts removed**: `~/.config/gh` (real), NuGet env var
+  (real PAT), `ANTHROPIC_API_KEY` (real) no longer reach the agent container.
+- git over HTTPS with token injection via credential helper → proxy swap.
+  SSH (port 22) stays default-denied unless explicitly allowed.
+- Docker registry auth (private images) deferred — requires intercepting the
+  `/v2/token` exchange flow.
 
 ### Cross-cutting / carry over from the old script
 - Worktree mode, host-absolute-path mounts, Nix symlink resolution, Ctrl-Z
@@ -220,7 +231,7 @@ allowlist are in a separate container namespace and are unreachable.
 
 ---
 
-## Current status: Phase A proven, Phase B proven, Phase B.1 proven
+## Current status: Phase A proven, Phase B proven, Phase B.1 proven, Phase C scaffolded
 
 - ✅ Inner dockerd starts under sysbox-runc (validated on `tachikoma`)
 - ✅ `docker run hello-world` works nested inside the agent container
@@ -231,8 +242,11 @@ allowlist are in a separate container namespace and are unreachable.
 - ✅ Phase B.1 proven end to end: forward proxy sidecar on Docker --internal
   network. Direct connections (--noproxy, raw TCP) blocked by host iptables.
   docker pull works through proxy. 42 pass, 0 fail, 1 skip.
+- ✅ Phase C scaffolded: credential injection addon (`cred-inject.py`),
+  credential map, placeholder config generation, launcher plumbing to pass
+  real creds to sidecar only. Real credential mounts removed from wrappers.
 
-Next step: **Phase C** — credential injection (keep secrets off the agent).
+Next step: **test Phase C** end to end on `tachikoma`, then iterate.
 
 ---
 

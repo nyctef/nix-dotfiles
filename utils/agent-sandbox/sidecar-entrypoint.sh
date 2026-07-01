@@ -40,6 +40,10 @@ echo "Starting egress proxy (mitmproxy forward mode, port $PROXY_PORT)..."
 #
 # --set connection_strategy=lazy: don't connect upstream until the full
 # request is available (needed for proper Host header checking).
+# Phase C: load credential injection addon alongside the egress policy.
+# cred-inject.py reads SANDBOX_CRED_* env vars (set by the launcher, present
+# only in the sidecar) and injects real credentials into matching outbound
+# requests. The agent container never sees the real credentials.
 mitmdump \
     --mode regular \
     --listen-host 0.0.0.0 \
@@ -48,6 +52,7 @@ mitmdump \
     --set connection_strategy=lazy \
     --ssl-insecure \
     -s /opt/egress-policy.py \
+    -s /opt/cred-inject.py \
     >"$PROXY_LOGFILE" 2>&1 &
 PROXY_PID=$!
 

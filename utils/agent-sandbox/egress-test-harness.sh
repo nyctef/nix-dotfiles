@@ -393,6 +393,81 @@ echo "  Route table:"
 ip route 2>/dev/null | sed 's/^/    /' || true
 echo "  Proxy: ${HTTP_PROXY:-<not set>}"
 
+# ── 15. Credential injection (Phase C) ────────────────────────────────────────────
+
+section "Credential injection (Phase C: placeholder → real cred swap)"
+
+# Verify placeholder env vars are present (not real creds).
+if [[ "${ANTHROPIC_API_KEY:-}" == "SANDBOX-PLACEHOLDER-ANTHROPIC-KEY" ]]; then
+    pass "ANTHROPIC_API_KEY is placeholder (not real key)"
+elif [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+    skip "ANTHROPIC_API_KEY not set (test not applicable)"
+else
+    fail "ANTHROPIC_API_KEY is NOT a placeholder (real key leaked to agent!)"
+fi
+
+# Verify real credentials are NOT in the agent's environment.
+if env | grep -q 'SANDBOX_CRED_'; then
+    fail "SANDBOX_CRED_* env vars found in agent container (should be sidecar only!)"
+else
+    pass "No SANDBOX_CRED_* env vars in agent container (sidecar only)"
+fi
+
+# Test that the credential helper script exists and is executable.
+if [[ -x /opt/sandbox/git-credential-sandbox.sh ]]; then
+    pass "git credential helper present at /opt/sandbox/"
+else
+    skip "git credential helper not mounted (no --mount for it)"
+fi
+
+# Test that the git config overlay exists.
+if [[ -f /opt/sandbox/sandbox-credentials.inc ]]; then
+    pass "git config overlay present at /opt/sandbox/"
+else
+    skip "git config overlay not mounted"
+fi
+
+# Test the credential helper returns placeholder tokens.
+if [[ -x /opt/sandbox/git-credential-sandbox.sh ]]; then
+    CRED_OUTPUT="$(echo -e 'protocol=https\nhost=github.com\n' | /opt/sandbox/git-credential-sandbox.sh 2>/dev/null)"
+    if echo "$CRED_OUTPUT" | grep -q 'SANDBOX-PLACEHOLDER-GH-TOKEN'; then
+        pass "credential helper returns placeholder for github.com"
+    else
+        fail "credential helper did not return placeholder (got: $CRED_OUTPUT)"
+    fi
+fi
+
+# Test GitHub API with placeholder token → proxy should inject real token.
+# This only works if the sidecar has SANDBOX_CRED_GITHUB_TOKEN set.
+if [[ -n "${HTTP_PROXY:-}" ]]; then
+    GH_RESPONSE="$(curl -sf --connect-timeout 5 --max-time 10 \
+        -H 'Authorization: token SANDBOX-PLACEHOLDER-GH-TOKEN' \
+        'https://api.github.com/user' 2>/dev/null)" && GH_STATUS=0 || GH_STATUS=$?
+    if [[ $GH_STATUS -eq 0 ]] && echo "$GH_RESPONSE" | jq -e '.login' >/dev/null 2>&1; then
+        GH_LOGIN="$(echo "$GH_RESPONSE" | jq -r '.login')"
+        pass "GitHub API: placeholder swapped for real token (user: $GH_LOGIN)"
+    elif [[ $GH_STATUS -eq 0 ]]; then
+        # Got a response but not a valid user — maybe rate limited or bad token.
+        fail "GitHub API: response received but no .login (placeholder not swapped?)"
+    else
+        skip "GitHub API: request failed (sidecar may not have SANDBOX_CRED_GITHUB_TOKEN)"
+    fi
+else
+    skip "GitHub API credential test (no proxy configured)"
+fi
+
+# Test that gh CLI works with the placeholder config.
+if command -v gh &>/dev/null && [[ -f /home/claude/.config/gh/hosts.yml ]]; then
+    GH_CLI_OUTPUT="$(gh auth status 2>&1)" && GH_CLI_STATUS=0 || GH_CLI_STATUS=$?
+    if echo "$GH_CLI_OUTPUT" | grep -qi 'logged in'; then
+        pass "gh CLI: auth status reports logged in (placeholder config works)"
+    else
+        skip "gh CLI: auth status did not report logged in (may need real token in sidecar)"
+    fi
+else
+    skip "gh CLI credential test (gh not available or no config)"
+fi
+
 # ═════════════════════════════════════════════════════════════════════════════
 # SUMMARY
 # ═════════════════════════════════════════════════════════════════════════════

@@ -223,6 +223,43 @@ for spec in ${ENV_SPECS[@]+"${ENV_SPECS[@]}"}; do
     EXTRA_ENV+=(-e "$spec")
 done
 
+# ---------- resolve host credentials for sidecar injection (Phase C) ----------
+# Real credentials are read here on the host and passed ONLY to the sidecar
+# container. The agent container never sees them — it gets placeholder tokens
+# instead. The sidecar proxy addon (cred-inject.py) swaps placeholders for
+# real credentials in outbound requests.
+
+SIDECAR_CRED_ENV=()
+
+# GitHub token: try gh CLI first, then GITHUB_TOKEN env var.
+if command -v gh &>/dev/null; then
+    _GH_TOKEN="$(gh auth token 2>/dev/null)" || true
+else
+    _GH_TOKEN=""
+fi
+_GH_TOKEN="${_GH_TOKEN:-${GITHUB_TOKEN:-}}"
+if [[ -n "$_GH_TOKEN" ]]; then
+    SIDECAR_CRED_ENV+=(-e "SANDBOX_CRED_GITHUB_TOKEN=$_GH_TOKEN")
+    echo "  Credential: GitHub token → sidecar (placeholder to agent)"
+fi
+unset _GH_TOKEN
+
+# NuGet PAT: from the same env var the old mount used.
+_NUGET_PAT="${SANDBOX_CRED_NUGET_PAT:-${NuGetPackageSourceCredentials_red_gate_vsts_main_v3:-}}"
+if [[ -n "$_NUGET_PAT" ]]; then
+    SIDECAR_CRED_ENV+=(-e "SANDBOX_CRED_NUGET_PAT=$_NUGET_PAT")
+    echo "  Credential: NuGet PAT → sidecar (placeholder to agent)"
+fi
+unset _NUGET_PAT
+
+# Anthropic API key.
+_ANTHROPIC_KEY="${ANTHROPIC_API_KEY:-}"
+if [[ -n "$_ANTHROPIC_KEY" ]]; then
+    SIDECAR_CRED_ENV+=(-e "SANDBOX_CRED_ANTHROPIC_KEY=$_ANTHROPIC_KEY")
+    echo "  Credential: Anthropic API key → sidecar (placeholder to agent)"
+fi
+unset _ANTHROPIC_KEY
+
 # ---------- cleanup ----------
 
 cleanup() {
@@ -265,6 +302,7 @@ if [[ "$FIREWALL_DISABLED" != "1" ]]; then
         --name "$SIDECAR_NAME" \
         --network bridge \
         -v "$CA_VOLUME:/shared-ca" \
+        ${SIDECAR_CRED_ENV[@]+"${SIDECAR_CRED_ENV[@]}"} \
         "$SIDECAR_IMAGE" \
         >/dev/null
 
