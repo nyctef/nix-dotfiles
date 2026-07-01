@@ -82,6 +82,14 @@ CAEOF
         echo "Proxy CA installed into Java trust store."
     fi
 
+    # ---------- configure apt proxy ----------
+    # sudo resets env (env_reset in sudoers), so apt-get doesn't see
+    # HTTP_PROXY/HTTPS_PROXY. Drop a persistent apt config file.
+    cat > /etc/apt/apt.conf.d/99sandbox-proxy <<APTEOF
+Acquire::http::Proxy "$PROXY_URL";
+Acquire::https::Proxy "$PROXY_URL";
+APTEOF
+
     echo "Proxy configured: $PROXY_URL"
 
     # ---------- configure inner dockerd proxy ----------
