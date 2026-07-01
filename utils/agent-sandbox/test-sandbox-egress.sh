@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Test wrapper for the agent sandbox network stack.
+# Test wrapper for the agent sandbox network stack (Phase B.1: sidecar proxy).
 #
 # A sibling to run-claude-sandbox.sh — drives run-agent-sandbox.sh with a test
 # harness as the "agent command" instead of a real agent. Exercises:
 #
 #   - L7 proxy policy: allowed hosts, blocked hosts, subdomain matching
-#   - iptables mandatory floor: QUIC blocked, DoT blocked, raw TCP blocked
+#   - Sidecar enforcement: QUIC blocked, DoT blocked, raw TCP blocked
 #   - Domain fronting rejection
 #   - Proxy CA trust: curl/python/node don't need --insecure
-#   - Privilege separation: claude can't kill the proxy or modify iptables
+#   - Sidecar isolation: proxy/policy unreachable from agent container
+#   - iptables flush resilience: flushing agent's iptables has no effect
 #   - Inner dockerd: nested containers work
+#   - Network topology: agent on internal network, sidecar as sole gateway
 #   - DNS: resolution works for both allowed and blocked domains
 #
 # Usage: test-sandbox-egress.sh [--no-docker]

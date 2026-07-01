@@ -79,9 +79,11 @@ CAEOF
     # manipulates its own routing table, the only reachable next hop on the
     # internal network is the sidecar.
 
+    # Replace the default route (Docker's bridge gateway) with the sidecar.
+    # The agent's traffic must go through the sidecar for L7 policy enforcement.
     echo "Setting default route via sidecar ($SIDECAR_IP)..."
-    ip route add default via "$SIDECAR_IP" || {
-        echo "WARN: could not add default route (may already exist)." >&2
+    ip route replace default via "$SIDECAR_IP" || {
+        echo "WARN: could not set default route via sidecar." >&2
     }
 fi
 

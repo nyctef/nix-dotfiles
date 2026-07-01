@@ -93,8 +93,16 @@ DATA_VOLUME="agent-sandbox-varlib-$$"
 CA_VOLUME="agent-sandbox-ca-$$"
 INTERNAL_NET="sandbox-internal-$$"
 
-# Internal network: fixed subnet so the sidecar IP is predictable.
+# Sandbox network: fixed subnet so the sidecar IP is predictable.
 # 172.30.0.0/24 is in Docker's default pool range and unlikely to collide.
+# NOT --internal: Docker's --internal flag adds host-level iptables rules that
+# DROP traffic with non-subnet destination IPs on the bridge, which breaks our
+# transparent proxy routing (the agent sends to external IPs that traverse the
+# bridge to the sidecar). Instead, we use a regular bridge but configure the
+# agent to use only the sidecar as its gateway. The agent could discover and
+# use the bridge gateway to bypass (requires root + ip route), but this is a
+# higher bar than Phase B's iptables-flush, and the sidecar's proxy enforcement
+# is still unreachable (separate container/PID/filesystem namespace).
 INTERNAL_SUBNET="172.30.0.0/24"
 SIDECAR_INTERNAL_IP="172.30.0.2"
 
@@ -242,8 +250,8 @@ trap cleanup EXIT
 FIREWALL_DISABLED="${SANDBOX_DISABLE_FIREWALL:-}"
 
 if [[ "$FIREWALL_DISABLED" != "1" ]]; then
-    echo "Creating internal network ($INTERNAL_NET, subnet $INTERNAL_SUBNET)..."
-    docker network create --internal --subnet "$INTERNAL_SUBNET" "$INTERNAL_NET"
+    echo "Creating sandbox network ($INTERNAL_NET, subnet $INTERNAL_SUBNET)..."
+    docker network create --subnet "$INTERNAL_SUBNET" "$INTERNAL_NET"
 
     echo "Creating CA-sharing volume ($CA_VOLUME)..."
     docker volume create "$CA_VOLUME" >/dev/null
@@ -255,17 +263,21 @@ if [[ "$FIREWALL_DISABLED" != "1" ]]; then
 
     echo "Starting sidecar proxy ($SIDECAR_NAME)..."
 
-    docker create \
+    # Start sidecar on the bridge network first (so it has a default route
+    # and internet access). Then connect it to the internal network.
+    # We use run -d instead of create+start so --sysctl is applied at
+    # container creation time (when the network namespace is set up).
+    docker run -d \
         --name "$SIDECAR_NAME" \
-        --network "$INTERNAL_NET" \
-        --ip "$SIDECAR_INTERNAL_IP" \
+        --network bridge \
         --cap-add NET_ADMIN \
+        --sysctl net.ipv4.ip_forward=1 \
         -v "$CA_VOLUME:/shared-ca" \
+        -e "UPSTREAM_DNS=${HOST_DNS}" \
         "$SIDECAR_IMAGE" \
         >/dev/null
 
-    docker network connect bridge "$SIDECAR_NAME"
-    docker start "$SIDECAR_NAME"
+    docker network connect --ip "$SIDECAR_INTERNAL_IP" "$INTERNAL_NET" "$SIDECAR_NAME"
 
     # Wait for sidecar to be ready (CA generated, iptables configured)
     echo "Waiting for sidecar to be ready..."
@@ -294,7 +306,10 @@ if [[ "$FIREWALL_DISABLED" != "1" ]]; then
 
     echo "Sidecar proxy ready."
 
-    NETWORK_ARGS=(--network "$INTERNAL_NET")
+    # --dns: Docker's embedded DNS (127.0.0.11) can't resolve external names
+    # on --internal networks (SERVFAIL). Use the sidecar as the DNS forwarder
+    # instead — it has internet access and forwards DNS queries to the host.
+    NETWORK_ARGS=(--network "$INTERNAL_NET" --dns "$SIDECAR_INTERNAL_IP")
     SIDECAR_ENV=(-e "SANDBOX_SIDECAR_IP=$SIDECAR_INTERNAL_IP")
     CA_MOUNT=(-v "$CA_VOLUME:/shared-ca:ro")
 else
@@ -336,7 +351,7 @@ fi
 # Run agent in foreground (not exec'd, so EXIT trap runs for cleanup).
 docker run \
     --rm \
-    -it \
+    -i $([ -t 0 ] && echo '-t') \
     --name "$CONTAINER_NAME" \
     --runtime="$DOCKER_RUNTIME" \
     \

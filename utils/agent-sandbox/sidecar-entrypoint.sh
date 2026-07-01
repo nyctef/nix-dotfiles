@@ -65,9 +65,17 @@ echo "CA certificate shared at $CA_SHARE_DIR/mitmproxy-ca-cert.pem"
 # External interface: has the default route (bridge → internet)
 EXTERNAL_IF=$(ip route | grep default | awk '{print $5}' | head -1)
 
-# Internal interface: any non-lo, non-external UP interface
-INTERNAL_IF=$(ip -o link show up | awk -F'[: ]+' '{print $2}' \
-    | grep -v lo | grep -v "$EXTERNAL_IF" | head -1)
+# Internal interface: any non-lo, non-external UP interface.
+# The internal network may be connected after startup (docker network connect),
+# so wait for it to appear. Strip the @ifN suffix from veth names.
+echo "Waiting for internal network interface..."
+INTERNAL_IF=""
+for _ in $(seq 1 30); do
+    INTERNAL_IF=$(ip -o link show up | awk -F'[: ]+' '{print $2}' \
+        | sed 's/@.*//' | grep -v lo | grep -v "$EXTERNAL_IF" | head -1)
+    [[ -n "$INTERNAL_IF" ]] && break
+    sleep 0.5
+done
 
 if [[ -z "$EXTERNAL_IF" || -z "$INTERNAL_IF" ]]; then
     echo "ERROR: could not identify network interfaces." >&2
@@ -82,12 +90,45 @@ echo "Network interfaces: external=$EXTERNAL_IF, internal=$INTERNAL_IF"
 
 # ── 3. Configure iptables ───────────────────────────────────────────────────
 
-# Enable IP forwarding (needed for DNS forwarding from agent)
-echo 1 > /proc/sys/net/ipv4/ip_forward
+# Enable IP forwarding (needed for DNS forwarding from agent).
+# Try multiple methods: sysctl, procfs write, nft. NET_ADMIN capability is
+# required but /proc/sys may be mounted read-only.
+if sysctl -w net.ipv4.ip_forward=1 2>/dev/null; then
+    echo "ip_forward enabled via sysctl"
+elif echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null; then
+    echo "ip_forward enabled via procfs"
+else
+    echo "WARN: could not enable ip_forward — DNS forwarding may not work" >&2
+fi
 
 # NAT: masquerade traffic leaving via the external interface (mitmproxy's
 # outbound connections to real servers)
 iptables -t nat -A POSTROUTING -o "$EXTERNAL_IF" -j MASQUERADE
+
+# DNS forwarding: the agent container uses the sidecar as its DNS server
+# (Docker's embedded DNS can't resolve on --internal networks). Forward DNS
+# queries arriving on the internal interface to the upstream resolver, which
+# the sidecar can reach via its external interface.
+#
+# UPSTREAM_DNS is the real host DNS, passed from the launcher. We cannot use
+# Docker's embedded DNS (127.0.0.11) as the DNAT target because the kernel
+# won't route packets with external source IPs to the loopback interface.
+UPSTREAM_DNS="${UPSTREAM_DNS:-}"
+if [[ -z "$UPSTREAM_DNS" ]]; then
+    # Fallback: try to parse the real DNS from Docker's resolv.conf comments
+    UPSTREAM_DNS=$(grep -oP '(?<=host\()\d+\.\d+\.\d+\.\d+' /etc/resolv.conf | head -1) || true
+fi
+if [[ -z "$UPSTREAM_DNS" ]]; then
+    echo "ERROR: no upstream DNS configured. Set UPSTREAM_DNS env var." >&2
+    exit 1
+fi
+echo "Upstream DNS: $UPSTREAM_DNS"
+
+# DNAT DNS to upstream (agent sends to sidecar IP:53, we forward to real DNS)
+iptables -t nat -A PREROUTING -i "$INTERNAL_IF" -p udp --dport 53 \
+    -j DNAT --to-destination "$UPSTREAM_DNS:53"
+iptables -t nat -A PREROUTING -i "$INTERNAL_IF" -p tcp --dport 53 \
+    -j DNAT --to-destination "$UPSTREAM_DNS:53"
 
 # Transparent redirect: HTTP(S) arriving from internal network → mitmproxy.
 # REDIRECT changes the destination to the local machine (sidecar):PROXY_PORT,
@@ -98,7 +139,7 @@ iptables -t nat -A PREROUTING -i "$INTERNAL_IF" -p tcp --dport 80 \
 iptables -t nat -A PREROUTING -i "$INTERNAL_IF" -p tcp --dport 443 \
     -j REDIRECT --to-port "$PROXY_PORT"
 
-# FORWARD chain: only allow DNS, block everything else.
+# FORWARD chain: allow DNS (DNAT'd to upstream), block everything else.
 # HTTP(S) is already redirected to local mitmproxy (INPUT), so legitimate web
 # traffic never hits FORWARD. Only non-HTTP (raw TCP, QUIC, etc.) and DNS do.
 iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT

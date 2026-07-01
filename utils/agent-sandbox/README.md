@@ -71,7 +71,7 @@ Sysbox is enabled declaratively in this repo via the vendored
 ```
 ┌─── Host Docker ──────────────────────────────────────────────┐
 │                                                              │
-│  ┌── sandbox-internal-$$ (Docker --internal network) ──────┐ │
+│  ┌── sandbox-internal-$$ (Docker bridge, sidecar=gateway) ─┐ │
 │  │                                                          │ │
 │  │  ┌─ Agent Container (sysbox-runc) ─────────────────┐    │ │
 │  │  │  claude user → agent process                     │    │ │
@@ -174,7 +174,7 @@ trick) — we don't refactor the old script to share code yet.
 | Attack vector | Phase B (in-container) | Phase B.1 (sidecar) |
 |---|---|---|
 | Agent ignores `HTTP_PROXY` | ✅ Blocked (iptables REDIRECT) | ✅ Blocked (network topology) |
-| Agent flushes iptables as root | ❌ **Bypasses proxy** | ✅ **No effect** (enforcement external) |
+| Agent flushes iptables as root | ❌ **Bypasses proxy** | ✅ **No effect** (no enforcement rules in agent) |
 | Agent kills proxy process | ❌ Risk if escalates to egressproxy uid | ✅ **Impossible** (process in sidecar) |
 | Agent modifies allowlist | ✅ File is root-owned | ✅ **File doesn't exist** in agent container |
 | Agent modifies policy addon | ✅ File is root-owned | ✅ **File doesn't exist** in agent container |
@@ -185,10 +185,12 @@ trick) — we don't refactor the old script to share code yet.
 | Nested container egress | ✅ SANDBOX_FORWARD chain | ✅ Traffic routes through sidecar |
 | Postinst script (apt-get) | ✅ Root goes through proxy | ✅ Root goes through sidecar |
 
-**Phase B.1 is strictly stronger**: it eliminates the iptables-flush and
-proxy-kill attack vectors while maintaining all other protections. The
-enforcement boundary moves from "iptables rules the agent can modify" to
-"Docker network topology the agent cannot modify."
+**Phase B.1 is strictly stronger**: it eliminates the proxy-kill and policy-
+modification attack vectors, and raises the bar on the iptables escape from
+"flush rules" (instant, Phase B) to "discover bridge gateway + reconfigure
+routing" (requires root + knowledge of Docker internals, Phase B.1). The proxy
+process, policy files, and domain allowlist remain unreachable in all cases
+(separate container namespace).
 
 ## Open questions / decisions parked
 - ~~subuid/subgid handling on NixOS~~ — resolved at activation (worked out of
@@ -199,10 +201,15 @@ enforcement boundary moves from "iptables rules the agent can modify" to
 - Whether to also keep a body-authorizing docker-socket proxy as
   defense-in-depth even under sysbox (probably not load-bearing once the agent
   is unprivileged).
-- Sysbox + custom Docker networks: should work (networking is orthogonal to the
-  runtime), but needs validation with `--internal` networks. If sysbox has
-  issues with `--internal`, fall back to a regular bridge with host-level
-  iptables to block the agent from using the bridge gateway directly.
+- Docker `--internal` networks are incompatible with transparent proxying: the
+  host-level iptables `DOCKER-INTERNAL` chain DROPs any traffic on the internal
+  bridge with non-subnet destination IPs. This blocks the transparent proxy
+  pattern (agent sends to external IP, sidecar REDIRECTs to mitmproxy) because
+  the packet is dropped before reaching the sidecar. We use a regular bridge
+  instead and replace the default route to point at the sidecar. The agent could
+  discover the bridge gateway and bypass (requires root + `ip route`), but this
+  is a higher bar than Phase B's instant `iptables -F` bypass, and the sidecar's
+  proxy/policy are still in a separate container (unreachable to modify/kill).
 - **Caveat:** transparent mode relies on plaintext SNI; SNI-less / ECH traffic
   is opaque. Mitigate via DNS (strip ECH HTTPS records) or full MITM (Host
   header). These AI/API endpoints send normal SNI today.
@@ -212,7 +219,7 @@ enforcement boundary moves from "iptables rules the agent can modify" to
 
 ---
 
-## Current status: Phase A proven, Phase B proven, Phase B.1 scaffolded
+## Current status: Phase A proven, Phase B proven, Phase B.1 proven
 
 - ✅ Inner dockerd starts under sysbox-runc (validated on `tachikoma`)
 - ✅ `docker run hello-world` works nested inside the agent container
@@ -220,12 +227,13 @@ enforcement boundary moves from "iptables rules the agent can modify" to
   and `run-agent-sandbox` are on `PATH` after `home-manager switch`
 - ✅ Phase B proven end to end: L7 proxy + iptables floor + no uid 0 bypass +
   nested container egress blocked + domain fronting rejected + sudoers tightened
-- ✅ Phase B.1 scaffolded: sidecar container, internal network, CA volume,
-  route setup, updated test harness. Ready for end-to-end validation.
+- ✅ Phase B.1 proven end to end: sidecar proxy, sandbox bridge network, DNS
+  forwarding via DNAT, CA volume, transparent redirect, all 47 tests passing.
+  Sidecar isolation verified: proxy process/policy files unreachable from agent,
+  iptables flush has no effect.
+- Test harness: `test-sandbox-egress` — 47 pass, 0 fail, 1 skip
 
-Next step: **Validate Phase B.1** end-to-end on `tachikoma` via
-`test-sandbox-egress`. Then **Phase C** — credential injection (keep secrets
-off the agent).
+Next step: **Phase C** — credential injection (keep secrets off the agent).
 
 ---
 
