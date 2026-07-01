@@ -1,23 +1,17 @@
 # Sidecar proxy for the agent sandbox (Phase B.1).
 #
-# Runs mitmproxy as the L7 egress policy enforcement point, OUTSIDE the agent
-# container. Connected to both an internal Docker network (agent-facing) and the
-# default bridge (internet-facing). The agent container's only route to the
-# internet goes through this sidecar — even if the agent gains root and flushes
-# iptables inside its own container, the sidecar's enforcement is unreachable.
-#
-# This closes the last residual risk from Phase B (in-container proxy): the
-# iptables-flush escape.
+# Runs mitmproxy as a forward (explicit) proxy on an --internal Docker network.
+# The agent container routes HTTP(S) through this proxy via HTTP_PROXY env vars.
+# Docker's --internal network provides mandatory enforcement: even if the agent
+# ignores the proxy, packets with non-subnet destination IPs are DROPped by
+# Docker's host-level iptables. No iptables, ip_forward, or NET_ADMIN needed.
 
 FROM python:3.12-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        iptables \
-        iproute2 \
         procps \
-        curl \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 

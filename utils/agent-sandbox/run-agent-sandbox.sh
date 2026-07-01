@@ -76,12 +76,6 @@ fi
 
 # ---------- configuration ----------
 
-# Auto-detect host DNS for the container's egress firewall (so dnsmasq/proxy
-# can reach the upstream resolver). WSL2 often uses a non-gateway DNS IP.
-if [[ -z "${HOST_DNS:-}" ]]; then
-    HOST_DNS="$(grep -m1 '^nameserver' /etc/resolv.conf | awk '{print $2}')" || true
-fi
-
 AGENT_IMAGE="agent-sandbox"
 SIDECAR_IMAGE="agent-sandbox-sidecar"
 CONTAINER_NAME="agent-sandbox-$$"
@@ -93,18 +87,16 @@ DATA_VOLUME="agent-sandbox-varlib-$$"
 CA_VOLUME="agent-sandbox-ca-$$"
 INTERNAL_NET="sandbox-internal-$$"
 
-# Sandbox network: fixed subnet so the sidecar IP is predictable.
+# Sandbox network: Docker --internal network with a fixed subnet.
+# --internal adds host-level iptables rules (DOCKER-INTERNAL chain) that DROP
+# any packet on the bridge with a non-subnet destination IP. This provides
+# mandatory enforcement: even if the agent gains root and ignores HTTP_PROXY,
+# it cannot reach external IPs. The only way out is through the sidecar proxy,
+# which the agent reaches via its internal IP (in-subnet, allowed by Docker).
 # 172.30.0.0/24 is in Docker's default pool range and unlikely to collide.
-# NOT --internal: Docker's --internal flag adds host-level iptables rules that
-# DROP traffic with non-subnet destination IPs on the bridge, which breaks our
-# transparent proxy routing (the agent sends to external IPs that traverse the
-# bridge to the sidecar). Instead, we use a regular bridge but configure the
-# agent to use only the sidecar as its gateway. The agent could discover and
-# use the bridge gateway to bypass (requires root + ip route), but this is a
-# higher bar than Phase B's iptables-flush, and the sidecar's proxy enforcement
-# is still unreachable (separate container/PID/filesystem namespace).
 INTERNAL_SUBNET="172.30.0.0/24"
 SIDECAR_INTERNAL_IP="172.30.0.2"
+PROXY_PORT=8080
 
 HOST_REPO_DIR="$PWD"
 
@@ -250,8 +242,8 @@ trap cleanup EXIT
 FIREWALL_DISABLED="${SANDBOX_DISABLE_FIREWALL:-}"
 
 if [[ "$FIREWALL_DISABLED" != "1" ]]; then
-    echo "Creating sandbox network ($INTERNAL_NET, subnet $INTERNAL_SUBNET)..."
-    docker network create --subnet "$INTERNAL_SUBNET" "$INTERNAL_NET"
+    echo "Creating sandbox network ($INTERNAL_NET, --internal, subnet $INTERNAL_SUBNET)..."
+    docker network create --internal --subnet "$INTERNAL_SUBNET" "$INTERNAL_NET"
 
     echo "Creating CA-sharing volume ($CA_VOLUME)..."
     docker volume create "$CA_VOLUME" >/dev/null
@@ -263,17 +255,14 @@ if [[ "$FIREWALL_DISABLED" != "1" ]]; then
 
     echo "Starting sidecar proxy ($SIDECAR_NAME)..."
 
-    # Start sidecar on the bridge network first (so it has a default route
-    # and internet access). Then connect it to the internal network.
-    # We use run -d instead of create+start so --sysctl is applied at
-    # container creation time (when the network namespace is set up).
+    # Start sidecar on the default bridge (internet access), then attach to
+    # the internal network. No NET_ADMIN or ip_forward needed — the sidecar
+    # is a simple forward proxy, not a NAT gateway. Docker's --internal
+    # network provides the mandatory enforcement.
     docker run -d \
         --name "$SIDECAR_NAME" \
         --network bridge \
-        --cap-add NET_ADMIN \
-        --sysctl net.ipv4.ip_forward=1 \
         -v "$CA_VOLUME:/shared-ca" \
-        -e "UPSTREAM_DNS=${HOST_DNS}" \
         "$SIDECAR_IMAGE" \
         >/dev/null
 
@@ -306,11 +295,13 @@ if [[ "$FIREWALL_DISABLED" != "1" ]]; then
 
     echo "Sidecar proxy ready."
 
-    # --dns: Docker's embedded DNS (127.0.0.11) can't resolve external names
-    # on --internal networks (SERVFAIL). Use the sidecar as the DNS forwarder
-    # instead — it has internet access and forwards DNS queries to the host.
-    NETWORK_ARGS=(--network "$INTERNAL_NET" --dns "$SIDECAR_INTERNAL_IP")
-    SIDECAR_ENV=(-e "SANDBOX_SIDECAR_IP=$SIDECAR_INTERNAL_IP")
+    # Agent on --internal network only. No --dns override needed: the agent
+    # doesn't need external DNS because HTTP_PROXY handles hostname resolution
+    # (the proxy resolves DNS from its bridge interface). Docker's embedded DNS
+    # (127.0.0.11) still resolves container names on the internal network.
+    PROXY_URL="http://${SIDECAR_INTERNAL_IP}:${PROXY_PORT}"
+    NETWORK_ARGS=(--network "$INTERNAL_NET")
+    SIDECAR_ENV=(-e "SANDBOX_PROXY_URL=$PROXY_URL")
     CA_MOUNT=(-v "$CA_VOLUME:/shared-ca:ro")
 else
     echo "WARN: sidecar proxy disabled (SANDBOX_DISABLE_FIREWALL=1)." >&2
@@ -330,8 +321,8 @@ echo "  Main repo    : $HOST_REPO_DIR (mounted ro)"
 fi
 echo "  Runtime      : $DOCKER_RUNTIME (inner dockerd, no host socket)"
 if [[ "$FIREWALL_DISABLED" != "1" ]]; then
-echo "  Egress       : sidecar proxy ($SIDECAR_NAME) on $INTERNAL_NET"
-echo "  Sidecar IP   : $SIDECAR_INTERNAL_IP"
+echo "  Egress       : sidecar proxy ($SIDECAR_NAME) on $INTERNAL_NET (--internal)"
+echo "  Proxy URL    : $PROXY_URL"
 fi
 echo "  Agent command: $AGENT_CMD"
 echo ""
@@ -375,7 +366,6 @@ docker run \
     -e "TERM=${TERM:-xterm-256color}" \
     -e "SANDBOX_AGENT_CMD=$AGENT_CMD" \
     -e "SANDBOX_DISABLE_FIREWALL=${SANDBOX_DISABLE_FIREWALL:-}" \
-    -e "HOST_DNS=${HOST_DNS:-}" \
     ${SIDECAR_ENV[@]+"${SIDECAR_ENV[@]}"} \
     ${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"} \
     \
