@@ -129,6 +129,28 @@ done
 PI_CONFIG_DIR="${PI_CODING_AGENT_DIR:-${HOME}/.pi/agent}"
 mkdir -p "$PHASE_C_TMPDIR/pi-config"
 
+# Extract pi's Anthropic API key from auth.json and export it so the core
+# launcher (run-agent-sandbox.sh) can pass it to the sidecar proxy. Pi stores
+# its own API key here (separate billing from Claude Code's OAuth subscription).
+# The env var is only used by the core's sidecar credential resolution — the
+# agent container gets the placeholder, not the real key.
+if [[ -z "${ANTHROPIC_API_KEY:-}" && -f "$PI_CONFIG_DIR/auth.json" ]]; then
+    _PI_API_KEY="$(python3 -c "
+import json, sys
+try:
+    data = json.load(open(sys.argv[1]))
+    key = data.get('anthropic', {}).get('key', '')
+    if key and not key.startswith('SANDBOX-PLACEHOLDER'):
+        print(key)
+except Exception:
+    pass
+" "$PI_CONFIG_DIR/auth.json" 2>/dev/null)" || true
+    if [[ -n "${_PI_API_KEY:-}" ]]; then
+        export ANTHROPIC_API_KEY="$_PI_API_KEY"
+    fi
+    unset _PI_API_KEY
+fi
+
 # Copy the full pi config dir structure (sessions, etc.) but sanitize auth files.
 if [[ -d "$PI_CONFIG_DIR" ]]; then
     # settings.json / auth.json: replace real API keys with placeholders.
