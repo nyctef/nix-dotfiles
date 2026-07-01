@@ -132,7 +132,7 @@ trick) — we don't refactor the old script to share code yet.
   keystore + standard env vars (`SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, etc.).
 - Self-verifying: asserts blocked host fails AND allowed host succeeds.
 
-### Phase B.1 — sidecar proxy (move enforcement outside the container)  ✅ scaffolded (untested)
+### Phase B.1 — sidecar proxy (move enforcement outside the container)  ✅ proven
 - Run mitmproxy in a **separate sidecar container** on a Docker `--internal`
   network. The agent container's only route to the internet goes through
   the sidecar. Even if the agent gains root and flushes iptables inside its
@@ -154,27 +154,49 @@ trick) — we don't refactor the old script to share code yet.
   bridge interface). Docker's embedded DNS resolves container names.
 - Proxy process, policy files, and domain allowlist are in the sidecar
   filesystem — agent cannot see, kill, or modify them.
+- `apt-get` proxy: `sudo` resets env (`env_reset`), so apt wouldn't see
+  `HTTP_PROXY`. The entrypoint writes `/etc/apt/apt.conf.d/99sandbox-proxy`
+  to make `sudo apt-get` work through the sidecar.
+- Docker subnet: uses `--subnet` with auto-assigned range to avoid collisions
+  in parallel sandbox runs.
 
-### Phase C — credential injection (keep secrets off the agent)  ✅ scaffolded (untested)
+### Phase C — credential injection (keep secrets off the agent)  ✅ proven
 - **Credential map** (`credential-map.yaml`): declarative domain→service→env-var
   mapping. Supports three injection modes: `github` (auto-detects API vs git
-  HTTPS), `basic_auth` (NuGet/VSTS feeds), `header` (Anthropic `x-api-key`).
+  HTTPS), `basic_auth` (NuGet/VSTS feeds), `header` (Anthropic `x-api-key`,
+  Claude OAuth Bearer token).
 - **mitmproxy addon** (`cred-inject.py`): runs in the sidecar alongside
   `egress-policy.py`. Reads real credentials from `SANDBOX_CRED_*` env vars
   (present only in the sidecar), swaps placeholder tokens in outbound requests.
+  Mode-aware placeholder stripping (skips `Authorization` header values for
+  `header` mode services).
 - **Launcher plumbing** (`run-agent-sandbox.sh`): reads host credentials
-  (`gh auth token`, `ANTHROPIC_API_KEY`, NuGet PAT) and passes them to the
-  sidecar via `-e SANDBOX_CRED_*`. Agent container never sees them.
+  (`gh auth token`, `ANTHROPIC_API_KEY`, `CLAUDE_DOCKER_OAUTH_TOKEN`, NuGet
+  PAT) and passes them to the sidecar via `-e SANDBOX_CRED_*`. Agent container
+  never sees them.
 - **Placeholder configs** (agent wrappers): synthetic `~/.config/gh/hosts.yml`,
   git credential helper (`/opt/sandbox/git-credential-sandbox.sh`), and git
   config overlay that returns placeholder tokens. NuGet and Anthropic env vars
-  set to placeholder values.
+  set to placeholder values. Host gitconfig credential helper sections stripped
+  via regex.
 - **Real credential mounts removed**: `~/.config/gh` (real), NuGet env var
-  (real PAT), `ANTHROPIC_API_KEY` (real) no longer reach the agent container.
+  (real PAT), `ANTHROPIC_API_KEY` (real), `.credentials.json` (masked with
+  empty file) no longer reach the agent container.
+- **Claude auth**: uses `CLAUDE_CODE_OAUTH_TOKEN` (not `ANTHROPIC_API_KEY`) to
+  avoid Claude Code's interactive "Detected a custom API key" prompt. The
+  sidecar injects the real Bearer token on outbound API requests.
+- **Pi wrapper** (`run-pi-sandbox.sh`): extracts API key from pi's
+  `auth.json`, sanitises config files (`settings.json`, `auth.json`) with
+  placeholder keys, exports `ANTHROPIC_API_KEY` for sidecar credential
+  resolution.
 - git over HTTPS with token injection via credential helper → proxy swap.
   SSH (port 22) stays default-denied unless explicitly allowed.
 - Docker registry auth (private images) deferred — requires intercepting the
   `/v2/token` exchange flow.
+- **Not yet in credential map**: OpenAI, Google, OpenRouter API keys. These
+  get placeholder env vars in the agent so the SDK starts, but the sidecar
+  doesn't inject real values yet. Extend `credential-map.yaml` and
+  `cred-inject.py` when needed.
 
 ### Cross-cutting / carry over from the old script
 - Worktree mode, host-absolute-path mounts, Nix symlink resolution, Ctrl-Z
@@ -209,44 +231,85 @@ allowlist are in a separate container namespace and are unreachable.
 ## Open questions / decisions parked
 - ~~subuid/subgid handling on NixOS~~ — resolved at activation (worked out of
   the box).
-- Proxy implementation: mitmproxy (batteries-included, Python addon) vs small Go
-  proxy (better at hijacked/streamed conns; lighter). For pure outbound HTTPS,
-  mitmproxy is fine; revisit if we ever proxy the docker socket too.
+- ~~Proxy implementation~~ — mitmproxy (batteries-included, Python addon)
+  chosen and proven. Revisit only if we ever proxy the docker socket too.
+- ~~Transparent vs forward proxy~~ — forward proxy wins. Docker `--internal`
+  networks are incompatible with transparent proxying (host iptables DROPs
+  non-subnet dests before REDIRECT). Forward proxy (HTTP_PROXY) sends CONNECT
+  to the sidecar's in-subnet IP, which Docker allows. `--internal` is the
+  mandatory enforcement: host-level, tamper-proof from inside any container.
 - Whether to also keep a body-authorizing docker-socket proxy as
   defense-in-depth even under sysbox (probably not load-bearing once the agent
   is unprivileged).
-- Docker `--internal` networks are incompatible with **transparent** proxying
-  (iptables REDIRECT) because the host-level `DOCKER-INTERNAL` chain DROPs
-  packets with non-subnet destination IPs before they reach the sidecar. But
-  they work perfectly with a **forward** proxy (HTTP_PROXY), because the agent
-  sends CONNECT requests to the sidecar's internal IP (in-subnet, allowed by
-  Docker). This makes `--internal` the ideal enforcement mechanism: mandatory,
-  host-level, and tamper-proof from inside any container.
-- **Caveat:** transparent mode relies on plaintext SNI; SNI-less / ECH traffic
-  is opaque. Mitigate via DNS (strip ECH HTTPS records) or full MITM (Host
-  header). These AI/API endpoints send normal SNI today.
 - **Caveat:** nested containers don't have the MITM CA, so HTTPS from inside
   them fails with cert errors. This is acceptable (DB containers don't make
   outbound HTTPS; agent work happens in the outer container).
+- **Caveat:** ECH (Encrypted Client Hello) would hide SNI from the proxy.
+  These AI/API endpoints send normal SNI today; mitigate via DNS (strip ECH
+  HTTPS records) if needed later.
 
 ---
 
-## Current status: Phase A proven, Phase B proven, Phase B.1 proven, Phase C scaffolded
+## Current status: Phase A proven, Phase B proven, Phase B.1 proven, Phase C proven
 
-- ✅ Inner dockerd starts under sysbox-runc (validated on `tachikoma`)
+All phases validated end to end on `tachikoma` (NixOS 26.05, WSL2).
+
+- ✅ Inner dockerd starts under sysbox-runc
 - ✅ `docker run hello-world` works nested inside the agent container
-- ✅ `default.nix` wired into `users/claude-code.nix` — `run-claude-sandbox`
-  and `run-agent-sandbox` are on `PATH` after `home-manager switch`
+- ✅ `default.nix` wired into `users/claude-code.nix` — `run-claude-sandbox`,
+  `run-pi-sandbox`, and `run-agent-sandbox` are on `PATH` after
+  `home-manager switch`
 - ✅ Phase B proven end to end: L7 proxy + iptables floor + no uid 0 bypass +
   nested container egress blocked + domain fronting rejected + sudoers tightened
 - ✅ Phase B.1 proven end to end: forward proxy sidecar on Docker --internal
   network. Direct connections (--noproxy, raw TCP) blocked by host iptables.
   docker pull works through proxy. 42 pass, 0 fail, 1 skip.
-- ✅ Phase C scaffolded: credential injection addon (`cred-inject.py`),
-  credential map, placeholder config generation, launcher plumbing to pass
-  real creds to sidecar only. Real credential mounts removed from wrappers.
+- ✅ Phase C proven end to end: credential injection via sidecar proxy.
+  Agent container sees only `SANDBOX-PLACEHOLDER-*` tokens. Real credentials
+  passed exclusively to sidecar via `SANDBOX_CRED_*` env vars. GitHub
+  (API + git HTTPS), Anthropic (x-api-key + Bearer), NuGet (basic auth)
+  all injected by `cred-inject.py`. `.credentials.json` masked.
+  Host gitconfig credential helpers stripped.
+- ✅ `sudo apt-get` works through sidecar proxy (persistent apt proxy config).
+- ✅ No real credentials leak into the agent container (verified from inside
+  a live sandbox session).
 
-Next step: **test Phase C** end to end on `tachikoma`, then iterate.
+### Verified from inside the sandbox (2026-07-01)
+
+| Test | Result |
+|------|--------|
+| Allowed domain (`api.github.com`) | ✅ HTTP 200 |
+| Allowed domain (`api.anthropic.com`) | ✅ Reachable |
+| Blocked domain (`example.com`, `evil.com`) | ✅ HTTP 403 from proxy |
+| Direct connection bypassing proxy (`--noproxy`) | ✅ Blocked (DNS fails, no route) |
+| Direct connection to external IP | ✅ Blocked (`Couldn't connect`) |
+| Raw TCP exfil | ✅ Blocked (no route out of `--internal`) |
+| External DNS (`8.8.8.8`) | ✅ Network unreachable |
+| Credential env vars | ✅ All `SANDBOX-PLACEHOLDER-*` |
+| Sidecar filesystem (`/proc/1/root/`) | ✅ Permission denied |
+| iptables manipulation | ✅ Permission denied (not root) |
+| Inner dockerd | ✅ Running (v29.6.1) |
+| Docker pull through proxy | ✅ Works |
+| Nested container egress | ✅ Blocked |
+| Privilege escalation | ✅ Only `sudo apt-get` allowed |
+| `sudo apt-get update` | ✅ Works (apt proxy config) |
+| TLS issuer on allowed hosts | ✅ mitmproxy CA (MITM working) |
+
+### Next steps
+
+- **Extend credential map** for additional providers (OpenAI, Google,
+  OpenRouter) when those agents/models are used in the sandbox.
+- **Docker registry auth** for private images — requires intercepting the
+  `/v2/token` exchange flow.
+- **Registry pull-through mirror** (`registry:2` +
+  `REGISTRY_PROXY_REMOTEURL`) for warm caches without sharing storage
+  across parallel agents.
+- **Cut over** from `utils/run-claude-docker.sh` (the daily driver) to the
+  sandbox launchers once the sandbox has enough mileage.
+- **Nested container HTTPS**: inner containers don't have the MITM CA,
+  so HTTPS from inside them fails. Acceptable today (DB containers don't
+  make outbound HTTPS), but could be addressed by injecting the CA into
+  the inner dockerd's default build args or a volume mount.
 
 ---
 
