@@ -43,4 +43,14 @@ pkgs.stdenv.mkDerivation {
         --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.docker pkgs.coreutils pkgs.git ]}
     done
   '';
+
+  # entrypoint.sh and sidecar-entrypoint.sh are COPY'd into Docker
+  # containers where Nix store paths don't exist.  Undo patchShebangs
+  # for these two files so they keep their portable #!/usr/bin/env bash.
+  postFixup = ''
+    for f in $out/libexec/agent-sandbox/entrypoint.sh \
+             $out/libexec/agent-sandbox/sidecar-entrypoint.sh; do
+      sed -i '1s|^#!.*/bash|#!/usr/bin/env bash|' "$f"
+    done
+  '';
 }
