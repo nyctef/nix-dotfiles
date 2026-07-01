@@ -171,6 +171,8 @@ docker build \
 
 # ---------- assemble bind mounts from --mount specs ----------
 
+echo "Processing bind mounts..."
+
 OPTIONAL_MOUNTS=()
 
 # Nix/Home Manager dotfiles are symlinks into /nix/store, which doesn't exist
@@ -180,13 +182,17 @@ resolve_external_symlinks() {
     local host_dir="${1%/}" container_dir="${2%/}" mode="$3"
     local real_host_dir
     real_host_dir="$(readlink -f "$host_dir")"
+    echo "  Resolving symlinks in $host_dir (real: $real_host_dir)..."
+    local count=0
     while IFS= read -r -d '' link; do
         local target
-        target="$(readlink -f "$link")"
+        target="$(readlink -f "$link")" || { echo "  WARN: readlink failed for $link" >&2; continue; }
         [[ "$target" == "$real_host_dir"/* ]] && continue
         local rel="${link#"$host_dir"/}"
         OPTIONAL_MOUNTS+=(-v "${target}:${container_dir}/${rel}:${mode}")
+        count=$((count + 1))
     done < <(find "$host_dir" -maxdepth 2 -type l -print0 2>/dev/null)
+    echo "  -> $count external symlinks mounted"
 }
 
 add_mount() {
@@ -194,10 +200,15 @@ add_mount() {
     local resolved
     resolved="$(readlink -f "$src" 2>/dev/null)" || resolved="$src"
     if [[ -e "$resolved" ]]; then
+        echo "  Mount: $src -> $dst ($mode, resolved: $resolved)"
         OPTIONAL_MOUNTS+=(-v "${resolved}:${dst}:${mode}")
-        if [[ -d "$resolved" ]]; then
-            resolve_external_symlinks "$src" "$dst" ro
+        # Skip symlink resolution for /nix/store — we mount the whole thing,
+        # and scanning it is extremely slow (thousands of entries).
+        if [[ -d "$resolved" && "$resolved" != "/nix/store" ]]; then
+            resolve_external_symlinks "$src" "$dst" "$mode"
         fi
+    else
+        echo "  Skip (missing): $src"
     fi
 }
 
@@ -211,15 +222,21 @@ for spec in ${MOUNT_SPECS[@]+"${MOUNT_SPECS[@]}"}; do
         echo "ERROR: bad --mount spec '$spec' (want <ro|rw>:<host>:<container>)" >&2
         exit 1
     fi
+    echo "  Processing mount spec: $spec"
     add_mount "$mode" "$host" "$container"
 done
 
+echo "Bind mounts ready (${#OPTIONAL_MOUNTS[@]} entries)."
+
 # ---------- assemble env from --env specs ----------
 
+echo "Processing environment variables..."
 EXTRA_ENV=()
 for spec in ${ENV_SPECS[@]+"${ENV_SPECS[@]}"}; do
+    echo "  Env: ${spec%%=*}=..."
     EXTRA_ENV+=(-e "$spec")
 done
+echo "Environment ready (${#EXTRA_ENV[@]} entries)."
 
 # ---------- cleanup ----------
 
