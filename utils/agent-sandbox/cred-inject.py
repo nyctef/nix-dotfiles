@@ -304,15 +304,31 @@ class CredentialInjector:
     def _strip_placeholder(self, flow: http.HTTPFlow, svc: ServiceConfig):
         """Remove placeholder tokens from requests when the real credential is
         not available. Prevents stale placeholder values from reaching the
-        upstream API and causing auth conflicts."""
-        auth_header = flow.request.headers.get("Authorization", "")
-        if svc.placeholder and svc.placeholder in auth_header:
-            del flow.request.headers["Authorization"]
-            logger.debug(
-                "Stripped placeholder %s Authorization header for %s",
-                svc.name,
-                flow.request.pretty_host,
-            )
+        upstream API and causing auth conflicts.
+
+        Mode-aware: for mode=header services, strips the specific header
+        (e.g. x-api-key); for bearer/github/basic_auth, strips Authorization."""
+        if not svc.placeholder:
+            return
+
+        # Determine which header(s) to check based on injection mode.
+        if svc.mode == "header" and svc.header_name:
+            # Custom header (e.g. x-api-key for the Anthropic service).
+            headers_to_check = [svc.header_name]
+        else:
+            # Bearer, basic_auth, github all use Authorization.
+            headers_to_check = ["Authorization"]
+
+        for header_name in headers_to_check:
+            header_val = flow.request.headers.get(header_name, "")
+            if svc.placeholder in header_val:
+                del flow.request.headers[header_name]
+                logger.debug(
+                    "Stripped placeholder %s '%s' header for %s",
+                    svc.name,
+                    header_name,
+                    flow.request.pretty_host,
+                )
 
     def _inject_header(self, flow: http.HTTPFlow, svc: ServiceConfig):
         """Set a specific header to the real credential value."""
