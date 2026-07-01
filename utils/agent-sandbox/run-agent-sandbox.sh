@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Generic sysbox sandbox launcher — agent-agnostic core.
+# Generic sysbox sandbox launcher — agent-agnostic core (Phase B.1: sidecar).
 #
 # The caller supplies what makes a run agent-specific: the command to launch
 # inside, plus any extra bind mounts and env vars. See run-claude-sandbox.sh for
@@ -17,9 +17,11 @@ set -euo pipefail
 #   - /var/lib/docker is a per-instance named volume so parallel agents never
 #     share an inner data-root.
 #
-# Phase A: ergonomics + isolation (inner dockerd via sysbox).
-# Phase B: L7 egress policy (transparent mitmproxy + iptables mandatory floor).
-# Credentials are still passed from the host (Phase C).
+# Phase B.1: L7 egress enforcement via a sidecar proxy container. The agent
+# container sits on an --internal Docker network whose only route to the
+# internet goes through the sidecar (mitmproxy). Even if the agent gains root
+# and flushes iptables inside its own container, the sidecar's enforcement
+# is unreachable — closing the last residual risk from Phase B.
 #
 # Usage:
 #   run-agent-sandbox.sh --agent-cmd <cmd> \
@@ -80,11 +82,21 @@ if [[ -z "${HOST_DNS:-}" ]]; then
     HOST_DNS="$(grep -m1 '^nameserver' /etc/resolv.conf | awk '{print $2}')" || true
 fi
 
-BUILT_IMAGE="agent-sandbox"
+AGENT_IMAGE="agent-sandbox"
+SIDECAR_IMAGE="agent-sandbox-sidecar"
 CONTAINER_NAME="agent-sandbox-$$"
+SIDECAR_NAME="agent-sandbox-sidecar-$$"
 DOCKER_RUNTIME="sysbox-runc"
-# Per-instance inner data-root volume — unique per run, removed on exit.
+
+# Per-instance resources — unique per run, removed on exit.
 DATA_VOLUME="agent-sandbox-varlib-$$"
+CA_VOLUME="agent-sandbox-ca-$$"
+INTERNAL_NET="sandbox-internal-$$"
+
+# Internal network: fixed subnet so the sidecar IP is predictable.
+# 172.30.0.0/24 is in Docker's default pool range and unlikely to collide.
+INTERNAL_SUBNET="172.30.0.0/24"
+SIDECAR_INTERNAL_IP="172.30.0.2"
 
 HOST_REPO_DIR="$PWD"
 
@@ -136,19 +148,25 @@ if ! docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q "$DOCKER_RU
     exit 1
 fi
 
-# ---------- build image if needed ----------
+# ---------- build images ----------
 
 DOTNET_SDK_VERSION="$(dotnet --version)"
 FLYWAY_VERSION="$(flyway version -outputType=json 2>/dev/null | jq -r '.version')"
 
-echo "Building Docker image '$BUILT_IMAGE'..."
-# Real build context (the support dir) so the Dockerfile can COPY entrypoint.sh
-# — unlike the old `docker build -` stdin build with no context.
+echo "Building Docker images..."
+
+# Agent image (sysbox, inner dockerd, developer tools)
 docker build \
     --build-arg "DOTNET_SDK_VERSION=$DOTNET_SDK_VERSION" \
     --build-arg "FLYWAY_VERSION=$FLYWAY_VERSION" \
-    -t "$BUILT_IMAGE" \
+    -t "$AGENT_IMAGE" \
     -f "$SUPPORT_DIR/Dockerfile" \
+    "$SUPPORT_DIR"
+
+# Sidecar image (mitmproxy + iptables, lightweight)
+docker build \
+    -t "$SIDECAR_IMAGE" \
+    -f "$SUPPORT_DIR/Dockerfile.sidecar" \
     "$SUPPORT_DIR"
 
 # ---------- assemble bind mounts from --mount specs ----------
@@ -206,13 +224,89 @@ done
 # ---------- cleanup ----------
 
 cleanup() {
-    # Per-instance inner data-root volume is disposable.
-    docker volume rm -f "$DATA_VOLUME" >/dev/null 2>&1 || true
+    echo ""
+    echo "Cleaning up sandbox resources..."
+    # Stop sidecar (agent container cleans itself via --rm)
+    docker stop -t 2 "$SIDECAR_NAME" 2>/dev/null || true
+    docker rm -f "$SIDECAR_NAME" 2>/dev/null || true
+    # Remove the internal network (must happen after containers are gone)
+    docker network rm "$INTERNAL_NET" 2>/dev/null || true
+    # Remove per-instance volumes
+    docker volume rm -f "$CA_VOLUME" 2>/dev/null || true
+    docker volume rm -f "$DATA_VOLUME" 2>/dev/null || true
 }
 trap cleanup EXIT
 
+# ---------- create network and volumes ----------
+
+FIREWALL_DISABLED="${SANDBOX_DISABLE_FIREWALL:-}"
+
+if [[ "$FIREWALL_DISABLED" != "1" ]]; then
+    echo "Creating internal network ($INTERNAL_NET, subnet $INTERNAL_SUBNET)..."
+    docker network create --internal --subnet "$INTERNAL_SUBNET" "$INTERNAL_NET"
+
+    echo "Creating CA-sharing volume ($CA_VOLUME)..."
+    docker volume create "$CA_VOLUME" >/dev/null
+
+    # ---------- start sidecar ----------
+    # Use docker create + network connect + start to attach both networks before
+    # the entrypoint runs. This way the sidecar sees both interfaces at startup
+    # and can correctly identify external (default route) vs internal.
+
+    echo "Starting sidecar proxy ($SIDECAR_NAME)..."
+
+    docker create \
+        --name "$SIDECAR_NAME" \
+        --network "$INTERNAL_NET" \
+        --ip "$SIDECAR_INTERNAL_IP" \
+        --cap-add NET_ADMIN \
+        -v "$CA_VOLUME:/shared-ca" \
+        "$SIDECAR_IMAGE" \
+        >/dev/null
+
+    docker network connect bridge "$SIDECAR_NAME"
+    docker start "$SIDECAR_NAME"
+
+    # Wait for sidecar to be ready (CA generated, iptables configured)
+    echo "Waiting for sidecar to be ready..."
+    for _ in $(seq 1 60); do
+        # Check the CA volume for the readiness signal
+        if docker run --rm -v "$CA_VOLUME:/shared-ca:ro" alpine \
+            test -f /shared-ca/.sidecar-ready 2>/dev/null; then
+            break
+        fi
+        # Check sidecar is still running
+        if ! docker inspect --format '{{.State.Running}}' "$SIDECAR_NAME" 2>/dev/null | grep -q true; then
+            echo "ERROR: sidecar exited during startup. Logs:" >&2
+            docker logs "$SIDECAR_NAME" 2>&1 | tail -n 40 >&2 || true
+            exit 1
+        fi
+        sleep 0.5
+    done
+
+    # Verify readiness
+    if ! docker run --rm -v "$CA_VOLUME:/shared-ca:ro" alpine \
+        test -f /shared-ca/.sidecar-ready 2>/dev/null; then
+        echo "ERROR: sidecar not ready within 30s. Logs:" >&2
+        docker logs "$SIDECAR_NAME" 2>&1 | tail -n 40 >&2 || true
+        exit 1
+    fi
+
+    echo "Sidecar proxy ready."
+
+    NETWORK_ARGS=(--network "$INTERNAL_NET")
+    SIDECAR_ENV=(-e "SANDBOX_SIDECAR_IP=$SIDECAR_INTERNAL_IP")
+    CA_MOUNT=(-v "$CA_VOLUME:/shared-ca:ro")
+else
+    echo "WARN: sidecar proxy disabled (SANDBOX_DISABLE_FIREWALL=1)." >&2
+    NETWORK_ARGS=()
+    SIDECAR_ENV=()
+    CA_MOUNT=()
+fi
+
 # ---------- run ----------
 
+echo ""
 echo "Starting agent in sysbox sandbox..."
 echo "  Working dir  : $HOST_PROJECT_DIR"
 if [[ -n "$WORKTREE_NAME" ]]; then
@@ -220,6 +314,10 @@ echo "  Worktree     : $WORKTREE_NAME (branch from $(git -C "$HOST_REPO_DIR" rev
 echo "  Main repo    : $HOST_REPO_DIR (mounted ro)"
 fi
 echo "  Runtime      : $DOCKER_RUNTIME (inner dockerd, no host socket)"
+if [[ "$FIREWALL_DISABLED" != "1" ]]; then
+echo "  Egress       : sidecar proxy ($SIDECAR_NAME) on $INTERNAL_NET"
+echo "  Sidecar IP   : $SIDECAR_INTERNAL_IP"
+fi
 echo "  Agent command: $AGENT_CMD"
 echo ""
 
@@ -235,14 +333,21 @@ else
     )
 fi
 
-exec docker run \
+# Run agent in foreground (not exec'd, so EXIT trap runs for cleanup).
+docker run \
     --rm \
     -it \
     --name "$CONTAINER_NAME" \
     --runtime="$DOCKER_RUNTIME" \
     \
+    `# ---- Network: internal only (sidecar is the only gateway) ----` \
+    ${NETWORK_ARGS[@]+"${NETWORK_ARGS[@]}"} \
+    \
     `# ---- Inner Docker data-root: per-instance volume (not shared) ----` \
     -v "$DATA_VOLUME:/var/lib/docker" \
+    \
+    `# ---- CA from sidecar: shared via Docker volume ----` \
+    ${CA_MOUNT[@]+"${CA_MOUNT[@]}"} \
     \
     `# ---- Project / worktree mounts ----` \
     "${PROJECT_MOUNTS[@]}" \
@@ -256,8 +361,9 @@ exec docker run \
     -e "SANDBOX_AGENT_CMD=$AGENT_CMD" \
     -e "SANDBOX_DISABLE_FIREWALL=${SANDBOX_DISABLE_FIREWALL:-}" \
     -e "HOST_DNS=${HOST_DNS:-}" \
+    ${SIDECAR_ENV[@]+"${SIDECAR_ENV[@]}"} \
     ${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"} \
     \
-    "$BUILT_IMAGE" \
+    "$AGENT_IMAGE" \
     \
     -- ${AGENT_ARGS[@]+"${AGENT_ARGS[@]}"}

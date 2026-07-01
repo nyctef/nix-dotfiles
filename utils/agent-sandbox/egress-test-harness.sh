@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
-# In-container test harness for the sandbox network stack.
+# In-container test harness for the sandbox network stack (Phase B.1: sidecar).
 #
 # Runs as the `claude` user (the "adversary" in our threat model). Tests the
-# full Phase B egress policy: L7 proxy, iptables mandatory floor, CA trust,
-# privilege separation, and inner dockerd.
+# full Phase B.1 egress policy: sidecar L7 proxy, network topology isolation,
+# CA trust, privilege separation, and inner dockerd.
+#
+# Phase B.1 key improvement: the proxy runs in a SEPARATE sidecar container.
+# The agent's only route to the internet is through the sidecar. Even if the
+# agent gains root and flushes iptables inside its own container, the sidecar's
+# enforcement is unreachable. This eliminates the iptables-flush escape that
+# was a residual risk in Phase B.
 #
 # Exit code: number of failed tests (0 = all passed).
 
@@ -24,15 +30,6 @@ skip() { ((SKIP_COUNT++)); echo -e "  ${YELLOW}⊘${RESET} $1 ${YELLOW}(skipped)
 section() { echo -e "\n${BOLD}${CYAN}── $1 ──${RESET}"; }
 
 # ── helpers ──────────────────────────────────────────────────────────────────
-
-# curl with sane defaults for testing. Returns exit code; captures body+headers
-# in $CURL_OUT and HTTP status in $HTTP_STATUS.
-tcurl() {
-    local url="$1"; shift
-    CURL_OUT="$(curl -s -o /dev/null -w '%{http_code}' \
-        --connect-timeout 5 --max-time 10 "$@" "$url" 2>&1)" || true
-    HTTP_STATUS="$CURL_OUT"
-}
 
 # Expect curl to connect to an allowed host. We care that the proxy allowed
 # the connection, not that the server returned 200 — a 404 from the real server
@@ -70,9 +67,10 @@ expect_blocked() {
 # TESTS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-echo -e "\n${BOLD}Agent Sandbox Network Test Harness${RESET}"
+echo -e "\n${BOLD}Agent Sandbox Network Test Harness (Phase B.1: Sidecar Proxy)${RESET}"
 echo "Running as: $(whoami) (uid=$(id -u))"
 echo "Date:       $(date -Iseconds)"
+echo "Sidecar IP: ${SANDBOX_SIDECAR_IP:-<not set>}"
 echo ""
 
 # ── 1. Allowed HTTPS hosts ───────────────────────────────────────────────────
@@ -151,11 +149,8 @@ expect_allowed "http://archive.ubuntu.com (apt mirror)" \
 
 section "QUIC / UDP 443 (should be blocked to force TCP fallback)"
 
-# curl --http3 is not always available, so we use a raw UDP check.
 # nc -u with a timeout: if REJECT'd, we get an immediate error (ICMP).
 if command -v nc &>/dev/null; then
-    # Send a dummy UDP packet to 443 on a public IP. REJECT should give
-    # immediate ICMP unreachable (exit != 0). DROP would timeout.
     if echo "test" | nc -u -w 2 8.8.8.8 443 2>&1 | grep -qi "refused\|unreachable\|not permitted" ||
        ! echo "test" | nc -u -w 2 8.8.8.8 443 >/dev/null 2>&1; then
         pass "UDP 443 blocked (REJECT)"
@@ -163,7 +158,6 @@ if command -v nc &>/dev/null; then
         fail "UDP 443 might be open"
     fi
 else
-    # Alternative: try curl with --http3 if available
     if curl --help all 2>&1 | grep -q -- '--http3'; then
         if curl --http3-only --connect-timeout 3 -sf https://cloudflare.com >/dev/null 2>&1; then
             fail "QUIC/HTTP3 succeeded (should be blocked)"
@@ -214,7 +208,7 @@ else
     fi
 fi
 
-# Try SMTP (port 25) — use /dev/tcp as fallback
+# Try SMTP (port 25)
 if timeout 3 bash -c 'echo >/dev/tcp/smtp.gmail.com/25' 2>/dev/null; then
     fail "TCP 25 (SMTP) is open — should be blocked"
 else
@@ -294,70 +288,34 @@ else
     fail "NODE_EXTRA_CA_CERTS not set"
 fi
 
-# ── 11. Privilege separation ────────────────────────────────────────────────
+# ── 11. Privilege separation (sidecar isolation) ────────────────────────────
 
-section "Privilege separation (claude user must not tamper with firewall)"
+section "Privilege separation (sidecar proxy is unreachable)"
 
-# claude should not be able to modify iptables
-if iptables -L -n >/dev/null 2>&1; then
-    fail "claude can list iptables rules (should require root)"
-else
-    pass "iptables -L denied for claude user"
-fi
+# In Phase B.1, the proxy runs in a separate container. The claude user cannot
+# see, kill, or modify it. These tests verify that the sidecar's enforcement
+# surfaces are not accessible from inside the agent container.
 
-if iptables -F 2>/dev/null; then
-    fail "claude can flush iptables (CRITICAL — firewall compromised)"
-else
-    pass "iptables -F denied for claude user"
-fi
-
-# claude should not be able to kill the proxy
+# The proxy process should NOT be visible in this container
 PROXY_PID="$(pgrep -f mitmdump 2>/dev/null | head -1)" || true
 if [[ -n "$PROXY_PID" ]]; then
-    if kill "$PROXY_PID" 2>/dev/null; then
-        fail "claude can kill the egress proxy (CRITICAL)"
-    else
-        pass "claude cannot kill the egress proxy (pid=$PROXY_PID)"
-    fi
-    # Also try SIGKILL
-    if kill -9 "$PROXY_PID" 2>/dev/null; then
-        fail "claude can SIGKILL the egress proxy (CRITICAL)"
-    else
-        pass "claude cannot SIGKILL the egress proxy"
-    fi
+    fail "mitmdump process visible in agent container (should be in sidecar only)"
 else
-    skip "proxy PID not found — can't test kill protection"
+    pass "mitmdump process not visible (running in sidecar container)"
 fi
 
-# claude should not be able to modify the domain allowlist
-# (bash redirection errors go to stderr before 2>/dev/null on the `if`, so
-#  we wrap in a subshell to capture them)
-if (echo "evil.com" >> /etc/firewall-domains.txt) 2>/dev/null; then
-    fail "claude can write to /etc/firewall-domains.txt (CRITICAL)"
+# The domain allowlist should NOT exist in this container
+if [[ -f /etc/firewall-domains.txt ]]; then
+    fail "/etc/firewall-domains.txt exists in agent container (should be in sidecar only)"
 else
-    pass "claude cannot modify /etc/firewall-domains.txt"
+    pass "/etc/firewall-domains.txt not present (in sidecar only)"
 fi
 
-# claude should not be able to overwrite the proxy addon
-if (echo "pass" > /opt/egress-policy.py) 2>/dev/null; then
-    fail "claude can overwrite /opt/egress-policy.py (CRITICAL)"
+# The egress policy script should NOT exist in this container
+if [[ -f /opt/egress-policy.py ]]; then
+    fail "/opt/egress-policy.py exists in agent container (should be in sidecar only)"
 else
-    pass "claude cannot modify /opt/egress-policy.py"
-fi
-
-# claude should not be able to modify iptables via sudo.
-# -n = non-interactive (fail immediately, never prompt for password).
-if sudo -n iptables -F 2>/dev/null; then
-    fail "claude can sudo iptables -F (CRITICAL)"
-else
-    pass "sudo iptables denied for claude user"
-fi
-
-# claude should not be able to sudo to root shell
-if sudo -n bash -c 'whoami' 2>/dev/null | grep -q root; then
-    fail "claude can sudo to root shell (CRITICAL)"
-else
-    pass "sudo root shell denied for claude user"
+    pass "/opt/egress-policy.py not present (in sidecar only)"
 fi
 
 # sudo dpkg should be denied (tightened sudoers)
@@ -374,22 +332,77 @@ else
     fail "sudo apt-get denied (agent needs this for installing packages)"
 fi
 
-# ── 12. Root escalation does not bypass proxy ───────────────────────────────
+# sudo root shell should be denied
+if sudo -n bash -c 'whoami' 2>/dev/null | grep -q root; then
+    fail "claude can sudo to root shell (CRITICAL)"
+else
+    pass "sudo root shell denied for claude user"
+fi
 
-section "Root escalation (gaining root must not bypass proxy)"
+# ── 12. SIDECAR ISOLATION: iptables flush does NOT bypass policy ────────────
 
-# docker run as root inside a privileged container — the classic escalation.
-# Even though claude is in the docker group, root traffic should still go
-# through the proxy.
+section "Sidecar isolation (iptables flush cannot bypass policy)"
+
+# THIS IS THE KEY TEST FOR PHASE B.1.
+#
+# In Phase B (in-container proxy), the agent gaining root and flushing iptables
+# was a known vulnerability — it would disconnect the proxy and let all traffic
+# through directly.
+#
+# In Phase B.1 (sidecar proxy), the enforcement is in a separate container.
+# The agent's iptables rules are irrelevant — there are no iptables rules in
+# the agent container that enforce egress policy. The only route to the internet
+# is through the sidecar (Docker network topology, enforced by Docker's host-
+# level iptables, which the agent cannot modify).
+#
+# This test verifies that even with full iptables access (which sysbox grants
+# to root for inner dockerd's bridge creation), the policy still holds.
+
+# claude user shouldn't be able to flush iptables (no sudo permission)
+if iptables -F 2>/dev/null; then
+    # If it succeeded, that's fine in Phase B.1 — it doesn't matter
+    echo "  (note: iptables -F succeeded as claude — harmless in sidecar model)"
+else
+    pass "iptables -F denied for claude user (as expected)"
+fi
+
+# The definitive test: verify blocked hosts are STILL blocked.
+# In Phase B, these would succeed after an iptables flush.
+# In Phase B.1, they remain blocked because the sidecar enforces policy.
+expect_blocked "example.com still blocked (enforcement is in sidecar, not local iptables)" \
+    "https://example.com"
+
+expect_allowed "api.github.com still works (sidecar routes allowed traffic)" \
+    "https://api.github.com/zen"
+
+# Verify there are no egress-related iptables rules in this container
+# (confirming that enforcement is external)
+if iptables -L -n 2>/dev/null; then
+    # If we can list rules, check there's no SANDBOX chain
+    if iptables -L -n 2>/dev/null | grep -q "SANDBOX"; then
+        fail "SANDBOX iptables chain found in agent container (should be in sidecar)"
+    else
+        pass "no SANDBOX iptables chains in agent container (enforcement is external)"
+    fi
+else
+    pass "iptables not accessible to claude (enforcement is external)"
+fi
+
+# ── 13. Root escalation via nested container ────────────────────────────────
+
+section "Root escalation (gaining root must not bypass sidecar)"
+
+# docker run as root inside a nested container — the classic escalation.
+# Traffic still routes through the sidecar because the Docker network topology
+# is the enforcement boundary, not iptables rules.
 if docker run --rm alpine sh -c \
     'apk add --no-cache curl >/dev/null 2>&1 && curl -sf --connect-timeout 5 https://example.com' \
     >/dev/null 2>&1; then
-    fail "nested root container reached blocked host (uid 0 bypass!)"
+    fail "nested root container reached blocked host (sidecar bypass!)"
 else
     pass "nested root container blocked from example.com"
 fi
 
-# Root traffic from docker exec (simulates gaining a root shell)
 if docker run --rm --user root alpine sh -c \
     'apk add --no-cache curl >/dev/null 2>&1 && curl -sf --connect-timeout 5 https://example.com' \
     >/dev/null 2>&1; then
@@ -404,31 +417,19 @@ if docker run --rm alpine sh -c \
     >/dev/null 2>&1; then
     pass "nested container can reach allowed host (api.github.com)"
 else
-    # This might fail because the nested container doesn't have the MITM CA.
-    # That's acceptable — the important thing is that blocked hosts are blocked.
+    # Might fail because the nested container doesn't have the MITM CA —
+    # acceptable; the important thing is blocked hosts are blocked.
     skip "nested container → allowed host failed (expected: no MITM CA in nested image)"
 fi
 
-# ── 13. Domain fronting (Host ≠ SNI) ────────────────────────────────────────
+# ── 14. Domain fronting (Host ≠ SNI) ────────────────────────────────────────
 
 section "Domain fronting detection (Host header ≠ SNI)"
 
-# This is hard to test without a custom TLS client. curl's --resolve or
-# --connect-to can separate the connection target from the Host header, which
-# is the closest we can get.
-#
-# Connect to github.com's IP but send Host: evil.com — the proxy should see
-# SNI=github.com + Host=evil.com and reject.
-
+# Connect to github.com's IP but send Host/SNI for evil.com — the sidecar's
+# proxy should block based on the hostname, regardless of the destination IP.
 GITHUB_IP="$(dig +short +timeout=3 github.com A 2>/dev/null | head -1)" || true
 if [[ -n "$GITHUB_IP" && "$GITHUB_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    # --connect-to makes curl connect to github.com:443 but we override the
-    # Host header to evil.com. The TLS SNI will be evil.com (since curl sets
-    # SNI from the URL host), so this tests a different path.
-    #
-    # Better: use --resolve to pin evil.com -> github.com's IP, so:
-    #   SNI = evil.com, Host = evil.com, connected to github.com's IP
-    # This tests that evil.com is blocked even when routed to an allowed IP.
     if curl -sf --connect-timeout 5 --max-time 10 \
         --resolve "evil.com:443:$GITHUB_IP" \
         "https://evil.com/" >/dev/null 2>&1; then
@@ -440,7 +441,7 @@ else
     skip "domain fronting — couldn't resolve github.com IP"
 fi
 
-# ── 14. Inner Docker (sysbox nested containers) ─────────────────────────────
+# ── 15. Inner Docker (sysbox nested containers) ─────────────────────────────
 
 section "Inner Docker (sysbox nested containers)"
 
@@ -455,35 +456,60 @@ else
     fi
 
     # Pull and run hello-world — tests that dockerd can reach Docker Hub
-    # through the proxy (registry-1.docker.io is in the allowlist, and
-    # dockerd trusts the MITM CA because it was installed before dockerd started)
+    # through the sidecar proxy (registry-1.docker.io is in the allowlist,
+    # and dockerd trusts the MITM CA from the shared volume)
     if docker run --rm hello-world >/dev/null 2>&1; then
-        pass "docker run hello-world succeeded (dockerd pulls through proxy)"
+        pass "docker run hello-world succeeded (dockerd pulls through sidecar)"
     else
-        fail "docker run hello-world failed (dockerd can't pull through proxy?)"
+        fail "docker run hello-world failed (dockerd can't pull through sidecar?)"
     fi
 fi
 
-# ── 15. Proxy log visibility ────────────────────────────────────────────────
+# ── 16. Network topology verification ───────────────────────────────────────
+
+section "Network topology (agent on internal network only)"
+
+# Verify the default route points to the sidecar
+DEFAULT_GW="$(ip route | grep default | awk '{print $3}' | head -1)" || true
+SIDECAR_IP="${SANDBOX_SIDECAR_IP:-}"
+if [[ -n "$DEFAULT_GW" && "$DEFAULT_GW" == "$SIDECAR_IP" ]]; then
+    pass "default route via sidecar ($DEFAULT_GW)"
+elif [[ -n "$DEFAULT_GW" ]]; then
+    fail "default route via $DEFAULT_GW (expected $SIDECAR_IP)"
+else
+    fail "no default route found"
+fi
+
+# Verify we're on an internal network (no Docker bridge gateway)
+# On Docker --internal networks, there's no gateway provided by Docker itself;
+# the only gateway is the one we added (the sidecar).
+ROUTE_COUNT="$(ip route | grep -c default)" || true
+if [[ "$ROUTE_COUNT" -le 1 ]]; then
+    pass "single default route (no Docker bridge gateway bypass)"
+else
+    fail "multiple default routes ($ROUTE_COUNT) — potential bypass path"
+fi
+
+# ── 17. Diagnostics ─────────────────────────────────────────────────────────
 
 section "Diagnostics"
 
-# Check if we can read the proxy log (useful for debugging but shouldn't be
-# writable by claude)
-if [[ -r /var/log/mitmproxy.log ]]; then
-    PROXY_LINES="$(wc -l < /var/log/mitmproxy.log)"
-    pass "proxy log readable ($PROXY_LINES lines)"
+# CA file from sidecar should be mounted read-only
+if [[ -f /shared-ca/mitmproxy-ca-cert.pem ]]; then
+    pass "sidecar CA cert present at /shared-ca/"
+    if (echo "test" >> /shared-ca/mitmproxy-ca-cert.pem) 2>/dev/null; then
+        fail "CA volume is writable (should be read-only)"
+    else
+        pass "CA volume is read-only"
+    fi
 else
-    # Not necessarily a failure — the log might be root-owned
-    skip "proxy log not readable by claude user"
+    fail "sidecar CA cert not found at /shared-ca/"
 fi
 
-# Show iptables rules (if readable, useful for debugging)
-if iptables -L -n 2>/dev/null; then
-    : # already handled above (would be a fail)
-else
-    pass "iptables rules not visible to claude (as expected)"
-fi
+# Show route table for debugging
+echo ""
+echo "  Route table:"
+ip route 2>/dev/null | sed 's/^/    /' || true
 
 # ═════════════════════════════════════════════════════════════════════════════
 # SUMMARY
@@ -497,10 +523,13 @@ echo -e "${BOLD}═════════════════════�
 if [[ $FAIL_COUNT -gt 0 ]]; then
     echo -e "\n${RED}${BOLD}SOME TESTS FAILED.${RESET} Review the output above."
     echo ""
-    echo "Diagnostic commands (from the shell after Ctrl-Z or 'exit'):"
-    echo "  cat /var/log/mitmproxy.log      # proxy decisions"
-    echo "  sudo iptables -L -n -v          # firewall rules + counters"
-    echo "  sudo iptables -t nat -L -n -v   # NAT/redirect rules"
+    echo "Diagnostic commands (from host):"
+    echo "  docker logs $SIDECAR_NAME      # sidecar proxy decisions (from host)"
+    echo "  docker exec $SIDECAR_NAME cat /var/log/mitmproxy.log"
+    echo "  docker exec $SIDECAR_NAME iptables -L -n -v"
+    echo ""
+    echo "Diagnostic commands (from agent container, after Ctrl-Z or 'exit'):"
+    echo "  ip route                        # verify sidecar is default gateway"
     echo "  curl -v https://example.com     # trace a blocked request"
     echo ""
 fi

@@ -21,12 +21,13 @@ Unlike the old single-file script, the pieces are split into separate files:
 |-------------------------|-------------------------------------------------------------|
 | `default.nix`           | copies the folder into the store; PATH-wraps both launchers |
 | `run-claude-sandbox.sh` | Claude wrapper — claude cmd/binary/config mounts/env, then calls the core |
-| `run-agent-sandbox.sh`  | **generic core** — worktree, build, mounts, `docker run`    |
-| `Dockerfile`            | agent image — full `dockerd` inside, **no host socket**     |
+| `run-agent-sandbox.sh`  | **generic core** — worktree, build, network, sidecar, `docker run` |
+| `Dockerfile`            | agent image — full `dockerd` inside, **no host socket**, **no proxy** |
+| `Dockerfile.sidecar`    | sidecar proxy image — mitmproxy + iptables, L7 egress policy |
+| `sidecar-entrypoint.sh` | in-sidecar: starts proxy, configures iptables, NAT gateway   |
 | `firewall-domains.txt`  | hostname allowlist — single source of truth for L7 egress policy        |
 | `egress-policy.py`      | mitmproxy addon — enforces hostname allowlist (SNI + Host), anti-fronting |
-| `init-egress-firewall.sh` | in-container: starts proxy, configures iptables, self-verifies        |
-| `entrypoint.sh`         | in-container: start inner dockerd, init firewall, run agent as `claude` |
+| `entrypoint.sh`         | in-agent: install CA from sidecar, start inner dockerd, set route, run agent |
 | `test-sandbox-egress.sh` | test wrapper — drives the core with a test harness as the "agent"     |
 | `egress-test-harness.sh` | in-container test suite — exercises every layer of the network stack   |
 
@@ -65,13 +66,50 @@ Sysbox is enabled declaratively in this repo via the vendored
 `system/sysbox-nix/` (`virtualisation.sysbox.enable = true`). See
 **Sysbox enablement** below for the full history.
 
+## Architecture: sidecar proxy (Phase B.1)
+
+```
+┌─── Host Docker ──────────────────────────────────────────────┐
+│                                                              │
+│  ┌── sandbox-internal-$$ (Docker --internal network) ──────┐ │
+│  │                                                          │ │
+│  │  ┌─ Agent Container (sysbox-runc) ─────────────────┐    │ │
+│  │  │  claude user → agent process                     │    │ │
+│  │  │  inner dockerd → nested containers               │    │ │
+│  │  │  default route → sidecar IP (172.30.0.2)         │    │ │
+│  │  │  NO proxy, NO iptables egress rules              │    │ │
+│  │  │  CA from sidecar (shared volume, read-only)      │    │ │
+│  │  └──────────────────────────┬───────────────────────┘    │ │
+│  │                             │ HTTP(S)                    │ │
+│  │  ┌─ Sidecar Container ─────┴──────────────────────┐     │ │
+│  │  │  mitmproxy (transparent) ← PREROUTING REDIRECT │     │ │
+│  │  │  iptables: FORWARD deny (non-HTTP blocked)     │     │ │
+│  │  │  egress-policy.py (hostname allowlist)          │     │ │
+│  │  │  firewall-domains.txt                          │     │ │
+│  │  └──────────────────────────┬─────────────────────┘     │ │
+│  └─────────────────────────────│─────────────────────────────┘ │
+│                                │ allowed traffic only          │
+│  ┌── default bridge ──────────┴────────────────────────────┐ │
+│  │                     Internet                            │ │
+│  └─────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Key security properties:**
+- Agent container is on `--internal` network only → no direct internet route
+- Sidecar is on both internal + bridge → acts as NAT gateway with L7 policy
+- Even if agent gains root + flushes iptables → no effect (enforcement is external)
+- Policy files (allowlist, addon) are in sidecar → agent can't read or modify them
+- Proxy process is in sidecar → agent can't see or kill it
+- CA shared via Docker volume (mounted read-only in agent container)
+
 ## Build order — each phase is independently shippable
 
 Reuse what already works by copying/extracting from `run-claude-docker.sh`
 (worktree setup, Nix symlink resolution, mount helpers, the Ctrl-Z rcfile
 trick) — we don't refactor the old script to share code yet.
 
-### Phase A — run the agent under sysbox  ✅ scaffolded (untested)
+### Phase A — run the agent under sysbox  ✅ proven
 - Launch the agent container with `--runtime=sysbox-runc`; install dockerd
   *inside* the image; **no host-socket mount at all** (the old `--docker` flag
   is simply not carried over).
@@ -83,52 +121,33 @@ trick) — we don't refactor the old script to share code yet.
   unprivileged; test-DB containers nested inside, not host siblings.
 
 ### Phase B — network: flip policy L3/L4 → L7 (biggest correctness win)  ✅ proven
-- Replaced dnsmasq+ipset+iptables IP-allowlisting with:
-  - **iptables = dumb mandatory floor**: default-deny egress, allow only DNS to
-    resolver + the proxy port; final `REJECT` kills all non-HTTP (raw TCP, QUIC,
-    C2). Blocks **UDP 443** (force QUIC→TCP) and **853** (DoT).
-  - **in-container proxy = policy brain** (mitmproxy transparent mode): owns
-    hostname allowlist (`/etc/firewall-domains.txt`). Checks SNI + Host header.
-    Rejects **domain fronting** (Host≠SNI).
-- Enforcement is **transparent** (iptables `REDIRECT` + uid-owner split: all
-  uids → proxy, proxy uid only → free) so it can't be bypassed even if the app
-  ignores `HTTP_PROXY`.
-- **No uid 0 exemption** — root traffic also goes through the proxy. The MITM
-  CA is installed before dockerd starts (Go reads certs per-connection), so
-  dockerd/containerd trust it for registry pulls. This closes the
-  docker-group-to-root and sudo-postinst escalation paths.
-- **Nested container egress blocked** via SANDBOX_FORWARD chain inserted at
-  the top of FORWARD (before dockerd's DOCKER chains). Inner containers can
-  talk to each other on private networks but cannot reach the internet.
-- **Sudoers tightened** — only `apt-get` (not `dpkg` or `apt`). Even apt-get
-  postinst scripts run as root, but root traffic goes through the proxy.
+- Replaced dnsmasq+ipset+iptables IP-allowlisting with L7 proxy (mitmproxy
+  transparent mode) + iptables mandatory floor.
 - Per-run CA generated by mitmproxy, installed into system trust store + Java
   keystore + standard env vars (`SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, etc.).
-- Self-verifying: asserts blocked host fails AND allowed host succeeds, both
-  as the agent user AND as root (uid 0 bypass check).
-- Escapable via `SANDBOX_DISABLE_FIREWALL=1` for debugging.
-- **Residual risk:** root inside the container can still `iptables -F` to flush
-  all rules (the proxy keeps running but nothing redirects traffic to it).
-  Phase B.1 (sidecar proxy) moves enforcement outside the container.
-- **Caveat:** transparent mode relies on plaintext SNI; SNI-less / ECH traffic
-  is opaque. Mitigate via DNS (strip ECH HTTPS records) or full MITM (Host
-  header). These AI/API endpoints send normal SNI today.
-- **Caveat:** nested containers don't have the MITM CA, so HTTPS from inside
-  them fails with cert errors. This is acceptable (DB containers don't make
-  outbound HTTPS; agent work happens in the outer container).
+- Self-verifying: asserts blocked host fails AND allowed host succeeds.
 
-### Phase B.1 — sidecar proxy (move enforcement outside the container)
+### Phase B.1 — sidecar proxy (move enforcement outside the container)  ✅ scaffolded (untested)
 - Run mitmproxy in a **separate sidecar container** on a Docker `--internal`
   network. The agent container's only route to the internet goes through
   the sidecar. Even if the agent gains root and flushes iptables inside its
   own container, the sidecar's enforcement is unreachable.
-- Architecture: sidecar on both `sandbox-net` (internal, no internet) and
-  the default bridge (internet). Agent container on `sandbox-net` only.
-  Sidecar acts as NAT gateway with mitmproxy as the policy point.
-- CA sharing via a Docker volume (sidecar generates, agent container mounts).
-- Sysbox should work with custom Docker networks (networking is orthogonal
-  to the runtime).
-- Closes the last in-container root risk: iptables tampering.
+- Architecture: sidecar on both `sandbox-internal-$$` (internal, no internet)
+  and the default bridge (internet). Agent container on `sandbox-internal-$$`
+  only. Sidecar acts as NAT gateway with mitmproxy as the policy point.
+- CA sharing via a Docker volume (sidecar generates, agent container mounts
+  read-only).
+- Agent entrypoint adds `ip route add default via <sidecar-ip>` to route all
+  traffic through the sidecar.
+- Sidecar iptables:
+  - `PREROUTING REDIRECT`: HTTP(S) from internal → mitmproxy (transparent)
+  - `FORWARD REJECT`: non-HTTP traffic blocked (raw TCP, QUIC, C2)
+  - `INPUT REJECT`: QUIC (UDP 443) and DoT (TCP 853) from internal
+  - `POSTROUTING MASQUERADE`: NAT outbound on external interface
+- Closes the last in-container root risk: **iptables tampering** is now
+  harmless because there are no enforcement rules in the agent container.
+- Proxy process, policy files, and domain allowlist are in the sidecar
+  filesystem — agent cannot see, kill, or modify them.
 
 ### Phase C — credential injection (keep secrets off the agent) — sbx model
 - Generate a per-run CA; install trust via the sbx env-var set
@@ -150,6 +169,27 @@ trick) — we don't refactor the old script to share code yet.
   fails AND an allowed host succeeds (the old check only tested the blocked
   case).
 
+## Security comparison: Phase B vs Phase B.1
+
+| Attack vector | Phase B (in-container) | Phase B.1 (sidecar) |
+|---|---|---|
+| Agent ignores `HTTP_PROXY` | ✅ Blocked (iptables REDIRECT) | ✅ Blocked (network topology) |
+| Agent flushes iptables as root | ❌ **Bypasses proxy** | ✅ **No effect** (enforcement external) |
+| Agent kills proxy process | ❌ Risk if escalates to egressproxy uid | ✅ **Impossible** (process in sidecar) |
+| Agent modifies allowlist | ✅ File is root-owned | ✅ **File doesn't exist** in agent container |
+| Agent modifies policy addon | ✅ File is root-owned | ✅ **File doesn't exist** in agent container |
+| Root uid 0 bypass | ✅ No exemption (Phase B fix) | ✅ **N/A** (no iptables to bypass) |
+| Domain fronting | ✅ Proxy detects SNI≠Host | ✅ Same (proxy in sidecar) |
+| QUIC/DoT bypass | ✅ Blocked by iptables | ✅ Blocked by sidecar iptables |
+| Raw TCP exfil | ✅ Default-deny in OUTPUT | ✅ Default-deny in sidecar FORWARD |
+| Nested container egress | ✅ SANDBOX_FORWARD chain | ✅ Traffic routes through sidecar |
+| Postinst script (apt-get) | ✅ Root goes through proxy | ✅ Root goes through sidecar |
+
+**Phase B.1 is strictly stronger**: it eliminates the iptables-flush and
+proxy-kill attack vectors while maintaining all other protections. The
+enforcement boundary moves from "iptables rules the agent can modify" to
+"Docker network topology the agent cannot modify."
+
 ## Open questions / decisions parked
 - ~~subuid/subgid handling on NixOS~~ — resolved at activation (worked out of
   the box).
@@ -159,10 +199,20 @@ trick) — we don't refactor the old script to share code yet.
 - Whether to also keep a body-authorizing docker-socket proxy as
   defense-in-depth even under sysbox (probably not load-bearing once the agent
   is unprivileged).
+- Sysbox + custom Docker networks: should work (networking is orthogonal to the
+  runtime), but needs validation with `--internal` networks. If sysbox has
+  issues with `--internal`, fall back to a regular bridge with host-level
+  iptables to block the agent from using the bridge gateway directly.
+- **Caveat:** transparent mode relies on plaintext SNI; SNI-less / ECH traffic
+  is opaque. Mitigate via DNS (strip ECH HTTPS records) or full MITM (Host
+  header). These AI/API endpoints send normal SNI today.
+- **Caveat:** nested containers don't have the MITM CA, so HTTPS from inside
+  them fails with cert errors. This is acceptable (DB containers don't make
+  outbound HTTPS; agent work happens in the outer container).
 
 ---
 
-## Current status: Phase A proven, Phase B proven
+## Current status: Phase A proven, Phase B proven, Phase B.1 scaffolded
 
 - ✅ Inner dockerd starts under sysbox-runc (validated on `tachikoma`)
 - ✅ `docker run hello-world` works nested inside the agent container
@@ -170,11 +220,12 @@ trick) — we don't refactor the old script to share code yet.
   and `run-agent-sandbox` are on `PATH` after `home-manager switch`
 - ✅ Phase B proven end to end: L7 proxy + iptables floor + no uid 0 bypass +
   nested container egress blocked + domain fronting rejected + sudoers tightened
-- ✅ Test harness: `test-sandbox-egress` — 45 pass, 0 fail
+- ✅ Phase B.1 scaffolded: sidecar container, internal network, CA volume,
+  route setup, updated test harness. Ready for end-to-end validation.
 
-Next step: **Phase B.1** — sidecar proxy (move enforcement outside the
-container to close the iptables-flush escape). Then **Phase C** — credential
-injection (keep secrets off the agent).
+Next step: **Validate Phase B.1** end-to-end on `tachikoma` via
+`test-sandbox-egress`. Then **Phase C** — credential injection (keep secrets
+off the agent).
 
 ---
 
