@@ -152,6 +152,8 @@ class CredentialInjector:
         if not host:
             return
 
+        # First pass: inject real credentials for active services.
+        injected = False
         for svc in self.services:
             if not svc.real_credential:
                 continue
@@ -172,7 +174,22 @@ class CredentialInjector:
                     svc.mode,
                     svc.name,
                 )
-            return  # Only one service per request
+            injected = True
+            break  # Only one service per request
+
+        # Second pass: strip placeholder tokens from inactive services that
+        # match this domain. Example: the agent always sends CLAUDE_CODE_OAUTH_TOKEN
+        # (a placeholder) but when only ANTHROPIC_API_KEY is configured, the
+        # placeholder Bearer token must be stripped so it doesn't conflict with
+        # the x-api-key header injected above.
+        for svc in self.services:
+            if svc.real_credential:
+                continue  # Active service — already handled above.
+            if not svc.placeholder:
+                continue
+            if not _domain_matches(host, svc.domains):
+                continue
+            self._strip_placeholder(flow, svc)
 
     def _inject_github(self, flow: http.HTTPFlow, svc: ServiceConfig):
         """GitHub: API gets 'token <PAT>', git HTTPS gets Basic auth."""
@@ -283,6 +300,19 @@ class CredentialInjector:
             # clobber it. It may be from another service (e.g. x-api-key is
             # handled by the 'header' mode for the same domain).
             pass
+
+    def _strip_placeholder(self, flow: http.HTTPFlow, svc: ServiceConfig):
+        """Remove placeholder tokens from requests when the real credential is
+        not available. Prevents stale placeholder values from reaching the
+        upstream API and causing auth conflicts."""
+        auth_header = flow.request.headers.get("Authorization", "")
+        if svc.placeholder and svc.placeholder in auth_header:
+            del flow.request.headers["Authorization"]
+            logger.debug(
+                "Stripped placeholder %s Authorization header for %s",
+                svc.name,
+                flow.request.pretty_host,
+            )
 
     def _inject_header(self, flow: http.HTTPFlow, svc: ServiceConfig):
         """Set a specific header to the real credential value."""

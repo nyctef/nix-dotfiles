@@ -182,8 +182,12 @@ ENVS=(
     # Phase C: NuGet gets the placeholder PAT. The real PAT is in the sidecar
     # proxy, which swaps it in outbound requests to VSTS feeds.
     --env "NuGetPackageSourceCredentials_red_gate_vsts_main_v3=SANDBOX-PLACEHOLDER-NUGET-PAT"
-    # Phase C: Anthropic API key placeholder. The real key is in the sidecar.
-    --env "ANTHROPIC_API_KEY=SANDBOX-PLACEHOLDER-ANTHROPIC-KEY"
+    # Phase C: Claude auth — use CLAUDE_CODE_OAUTH_TOKEN (not ANTHROPIC_API_KEY)
+    # because Claude Code silently accepts CLAUDE_CODE_OAUTH_TOKEN, while
+    # ANTHROPIC_API_KEY triggers an interactive "Detected a custom API key"
+    # prompt. The sidecar proxy injects the real credential (API key via
+    # x-api-key header, or OAuth Bearer token) on outbound requests.
+    --env "CLAUDE_CODE_OAUTH_TOKEN=SANDBOX-PLACEHOLDER-CLAUDE-OAUTH"
     # Phase C: git config include for the sandbox credential helper.
     --env "GIT_CONFIG_COUNT=1"
     --env "GIT_CONFIG_KEY_0=include.path"
@@ -209,11 +213,11 @@ trap cleanup EXIT
 # never be readable by the agent, regardless of whether the OAuth env var is set.
 MOUNTS+=( --mount "rw:${CRED_MASK}:/home/claude/.claude/.credentials.json" )
 
-if [[ -n "${CLAUDE_DOCKER_OAUTH_TOKEN:-}" ]]; then
-    # Phase C: agent gets a placeholder OAuth token. The sidecar proxy
-    # (via SANDBOX_CRED_CLAUDE_OAUTH) injects the real Bearer token.
-    ENVS+=( --env "CLAUDE_CODE_OAUTH_TOKEN=SANDBOX-PLACEHOLDER-CLAUDE-OAUTH" )
-fi
+# CLAUDE_CODE_OAUTH_TOKEN is already set in ENVS above (always, not
+# conditionally) so Claude Code starts without prompting for auth.
+# When CLAUDE_DOCKER_OAUTH_TOKEN is set on the host, run-agent-sandbox.sh
+# passes it to the sidecar as SANDBOX_CRED_CLAUDE_OAUTH for Bearer injection.
+# When only ANTHROPIC_API_KEY is set, the sidecar injects it as x-api-key.
 
 # ---------- hand off to the generic core ----------
 # Not exec'd, so the EXIT trap above runs after the core returns to clean up the

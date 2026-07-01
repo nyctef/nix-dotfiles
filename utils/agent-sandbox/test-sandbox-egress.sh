@@ -80,5 +80,5 @@ exec "$HERE/run-agent-sandbox.sh" \
     --mount "ro:$PHASE_C_TMPDIR/git-credential-sandbox.sh:/opt/sandbox/git-credential-sandbox.sh" \
     --mount "ro:$PHASE_C_TMPDIR/gitconfig.d/sandbox-credentials.inc:/opt/sandbox/sandbox-credentials.inc" \
     --env "SKIP_DOCKER_TESTS=${SKIP_DOCKER:-}" \
-    --env "ANTHROPIC_API_KEY=SANDBOX-PLACEHOLDER-ANTHROPIC-KEY" \
+    --env "CLAUDE_CODE_OAUTH_TOKEN=SANDBOX-PLACEHOLDER-CLAUDE-OAUTH" \
     -- # no extra agent args

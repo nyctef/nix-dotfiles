@@ -398,12 +398,18 @@ echo "  Proxy: ${HTTP_PROXY:-<not set>}"
 section "Credential injection (Phase C: placeholder → real cred swap)"
 
 # Verify placeholder env vars are present (not real creds).
-if [[ "${ANTHROPIC_API_KEY:-}" == "SANDBOX-PLACEHOLDER-ANTHROPIC-KEY" ]]; then
-    pass "ANTHROPIC_API_KEY is placeholder (not real key)"
-elif [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
-    skip "ANTHROPIC_API_KEY not set (test not applicable)"
+if [[ "${CLAUDE_CODE_OAUTH_TOKEN:-}" == "SANDBOX-PLACEHOLDER-CLAUDE-OAUTH" ]]; then
+    pass "CLAUDE_CODE_OAUTH_TOKEN is placeholder (not real token)"
+elif [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
+    skip "CLAUDE_CODE_OAUTH_TOKEN not set (test not applicable)"
 else
-    fail "ANTHROPIC_API_KEY is NOT a placeholder (real key leaked to agent!)"
+    fail "CLAUDE_CODE_OAUTH_TOKEN is NOT a placeholder (real token leaked to agent!)"
+fi
+
+if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+    fail "ANTHROPIC_API_KEY is set in agent container (should not be — use CLAUDE_CODE_OAUTH_TOKEN)"
+else
+    pass "ANTHROPIC_API_KEY not set in agent container"
 fi
 
 # Verify real credentials are NOT in the agent's environment.
