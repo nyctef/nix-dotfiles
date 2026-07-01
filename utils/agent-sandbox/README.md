@@ -21,6 +21,7 @@ Unlike the old single-file script, the pieces are split into separate files:
 |-------------------------|-------------------------------------------------------------|
 | `default.nix`           | copies the folder into the store; PATH-wraps both launchers |
 | `run-claude-sandbox.sh` | Claude wrapper — claude cmd/binary/config mounts/env, then calls the core |
+| `run-pi-sandbox.sh`     | Pi wrapper — pi binary (Nix closure), config/state mounts/env, then calls the core |
 | `run-agent-sandbox.sh`  | **generic core** — worktree, build, network, sidecar, `docker run` |
 | `Dockerfile`            | agent image — full `dockerd` inside, **no host socket**, **no proxy** |
 | `Dockerfile.sidecar`    | sidecar proxy image — mitmproxy forward proxy, L7 egress policy |

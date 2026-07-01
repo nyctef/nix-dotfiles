@@ -30,15 +30,15 @@ pkgs.stdenv.mkDerivation {
   installPhase = ''
     libexec=$out/libexec/agent-sandbox
     mkdir -p $libexec $out/bin
-    cp run-claude-sandbox.sh run-agent-sandbox.sh test-sandbox-egress.sh \
+    cp run-claude-sandbox.sh run-pi-sandbox.sh run-agent-sandbox.sh test-sandbox-egress.sh \
        egress-test-harness.sh Dockerfile Dockerfile.sidecar entrypoint.sh \
        sidecar-entrypoint.sh \
        firewall-domains.txt egress-policy.py $libexec/
-    chmod +x $libexec/run-claude-sandbox.sh $libexec/run-agent-sandbox.sh \
+    chmod +x $libexec/run-claude-sandbox.sh $libexec/run-pi-sandbox.sh $libexec/run-agent-sandbox.sh \
              $libexec/test-sandbox-egress.sh $libexec/egress-test-harness.sh \
              $libexec/entrypoint.sh $libexec/sidecar-entrypoint.sh
 
-    for entry in run-claude-sandbox run-agent-sandbox test-sandbox-egress; do
+    for entry in run-claude-sandbox run-pi-sandbox run-agent-sandbox test-sandbox-egress; do
       makeWrapper $libexec/$entry.sh $out/bin/$entry \
         --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.docker pkgs.coreutils pkgs.git ]}
     done
