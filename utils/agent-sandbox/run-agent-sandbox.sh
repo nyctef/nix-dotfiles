@@ -87,15 +87,13 @@ DATA_VOLUME="agent-sandbox-varlib-$$"
 CA_VOLUME="agent-sandbox-ca-$$"
 INTERNAL_NET="sandbox-internal-$$"
 
-# Sandbox network: Docker --internal network with a fixed subnet.
+# Sandbox network: Docker --internal network with an auto-assigned subnet.
 # --internal adds host-level iptables rules (DOCKER-INTERNAL chain) that DROP
 # any packet on the bridge with a non-subnet destination IP. This provides
 # mandatory enforcement: even if the agent gains root and ignores HTTP_PROXY,
 # it cannot reach external IPs. The only way out is through the sidecar proxy,
 # which the agent reaches via its internal IP (in-subnet, allowed by Docker).
-# 172.30.0.0/24 is in Docker's default pool range and unlikely to collide.
-INTERNAL_SUBNET="172.30.0.0/24"
-SIDECAR_INTERNAL_IP="172.30.0.2"
+# We let Docker pick the subnet to avoid collisions when running in parallel.
 PROXY_PORT=8080
 
 HOST_REPO_DIR="$PWD"
@@ -289,8 +287,8 @@ trap cleanup EXIT
 FIREWALL_DISABLED="${SANDBOX_DISABLE_FIREWALL:-}"
 
 if [[ "$FIREWALL_DISABLED" != "1" ]]; then
-    echo "Creating sandbox network ($INTERNAL_NET, --internal, subnet $INTERNAL_SUBNET)..."
-    docker network create --internal --subnet "$INTERNAL_SUBNET" "$INTERNAL_NET"
+    echo "Creating sandbox network ($INTERNAL_NET, --internal, auto-subnet)..."
+    docker network create --internal "$INTERNAL_NET"
 
     echo "Creating CA-sharing volume ($CA_VOLUME)..."
     docker volume create "$CA_VOLUME" >/dev/null
@@ -314,7 +312,14 @@ if [[ "$FIREWALL_DISABLED" != "1" ]]; then
         "$SIDECAR_IMAGE" \
         >/dev/null
 
-    docker network connect --ip "$SIDECAR_INTERNAL_IP" "$INTERNAL_NET" "$SIDECAR_NAME"
+    docker network connect "$INTERNAL_NET" "$SIDECAR_NAME"
+
+    # Discover the sidecar's auto-assigned IP on the internal network.
+    SIDECAR_INTERNAL_IP="$(docker inspect -f "{{(index .NetworkSettings.Networks \"$INTERNAL_NET\").IPAddress}}" "$SIDECAR_NAME")"
+    if [[ -z "$SIDECAR_INTERNAL_IP" ]]; then
+        echo "ERROR: could not determine sidecar IP on $INTERNAL_NET" >&2
+        exit 1
+    fi
 
     # Wait for sidecar to be ready (CA generated, iptables configured)
     echo "Waiting for sidecar to be ready..."
