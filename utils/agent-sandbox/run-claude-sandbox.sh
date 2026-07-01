@@ -140,9 +140,14 @@ fi
 
 MOUNTS=(
     --mount "ro:$CLAUDE_BINARY:/home/claude/.local/bin/claude"
-    # Claude config dir — rw because Claude writes session state, history, and
-    # .claude.json (auth/stats) here.
+    # Claude config dir — rw because Claude writes session state, history,
+    # and settings here. .credentials.json is masked (see below).
     --mount "rw:${HOME}/.claude:/home/claude/.claude"
+    # Claude stats/settings file — rw because Claude writes usage stats.
+    # NOTE: if this file ever gains auth tokens, it needs sanitizing like
+    # the pi auth files. Currently it holds stats/preferences only; primary
+    # auth is via CLAUDE_CODE_OAUTH_TOKEN (now placeholdered) or
+    # .credentials.json (masked).
     --mount "rw:${HOME}/.claude.json:/home/claude/.claude.json"
     # NuGet: host config structure preserved (proxy injects real PAT).
     --mount "ro:$PHASE_C_TMPDIR/nuget/NuGet.Config:/home/claude/.config/NuGet/NuGet.Config"
