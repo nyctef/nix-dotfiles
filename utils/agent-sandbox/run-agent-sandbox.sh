@@ -260,6 +260,14 @@ if [[ -n "$_ANTHROPIC_KEY" ]]; then
 fi
 unset _ANTHROPIC_KEY
 
+# Claude Code OAuth token (Bearer auth for api.anthropic.com).
+_CLAUDE_OAUTH="${CLAUDE_DOCKER_OAUTH_TOKEN:-}"
+if [[ -n "$_CLAUDE_OAUTH" ]]; then
+    SIDECAR_CRED_ENV+=(-e "SANDBOX_CRED_CLAUDE_OAUTH=$_CLAUDE_OAUTH")
+    echo "  Credential: Claude OAuth token → sidecar (placeholder to agent)"
+fi
+unset _CLAUDE_OAUTH
+
 # ---------- cleanup ----------
 
 cleanup() {

@@ -70,13 +70,58 @@ GCEOF
 chmod +x "$PHASE_C_TMPDIR/git-credential-sandbox.sh"
 
 # Git config overlay: use the sandbox credential helper.
-# This is mounted alongside the host .gitconfig (which may have other settings
-# we want to keep). We use includeIf or just override credential.helper.
 mkdir -p "$PHASE_C_TMPDIR/gitconfig.d"
 cat > "$PHASE_C_TMPDIR/gitconfig.d/sandbox-credentials.inc" <<'GITEOF'
 [credential]
     helper = /opt/sandbox/git-credential-sandbox.sh
 GITEOF
+
+# Sanitize the host gitconfig: copy it but strip any credential helper lines
+# so the agent can't call a host credential helper that returns real tokens.
+# The sandbox credential helper (included via GIT_CONFIG_COUNT) provides
+# placeholder tokens instead.
+if [[ -f "${HOME}/.gitconfig" ]]; then
+    # Remove [credential ...] sections that contain helper = lines.
+    # Keep everything else (aliases, user, gpg, push, etc.).
+    python3 -c "
+import re, sys
+text = open(sys.argv[1]).read()
+# Remove credential sections (with optional qualifier) and their contents
+text = re.sub(
+    r'\[credential[^\]]*\]\n(?:[ \t]+[^\n]*\n)*',
+    '',
+    text
+)
+open(sys.argv[2], 'w').write(text)
+" "${HOME}/.gitconfig" "$PHASE_C_TMPDIR/gitconfig-sanitized"
+else
+    touch "$PHASE_C_TMPDIR/gitconfig-sanitized"
+fi
+
+# Sanitize ~/.config/git/config similarly.
+mkdir -p "$PHASE_C_TMPDIR/config-git"
+if [[ -f "${HOME}/.config/git/config" ]]; then
+    python3 -c "
+import re, sys
+text = open(sys.argv[1]).read()
+text = re.sub(
+    r'\[credential[^\]]*\]\n(?:[ \t]+[^\n]*\n)*',
+    '',
+    text
+)
+open(sys.argv[2], 'w').write(text)
+" "${HOME}/.config/git/config" "$PHASE_C_TMPDIR/config-git/config"
+else
+    touch "$PHASE_C_TMPDIR/config-git/config"
+fi
+# Copy non-config files from ~/.config/git/ (ignore, hooks, etc.)
+for f in "${HOME}/.config/git/"*; do
+    fname="$(basename "$f")"
+    [[ "$fname" == "config" ]] && continue
+    if [[ ! -e "$PHASE_C_TMPDIR/config-git/$fname" ]]; then
+        cp -a "$f" "$PHASE_C_TMPDIR/config-git/$fname" 2>/dev/null || true
+    fi
+done
 
 # NuGet config with placeholder PAT.
 # The real NuGet.Config structure is preserved; only the credential value is
@@ -104,8 +149,10 @@ MOUNTS=(
     --mount "ro:$PHASE_C_TMPDIR/nuget/config/rg.config:/home/claude/.config/NuGet/config/rg.config"
     --mount "rw:${HOME}/.nuget/packages:/home/claude/.nuget/packages"
     --mount "ro:${HOME}/.dotfiles:/home/claude/.dotfiles"
-    --mount "ro:${HOME}/.gitconfig:/home/claude/.gitconfig"
-    --mount "ro:${HOME}/.config/git/:/home/claude/.config/git/"
+    # Phase C: sanitized gitconfig — credential helper sections stripped.
+    # The sandbox credential helper is injected via GIT_CONFIG_COUNT env vars.
+    --mount "ro:$PHASE_C_TMPDIR/gitconfig-sanitized:/home/claude/.gitconfig"
+    --mount "ro:$PHASE_C_TMPDIR/config-git:/home/claude/.config/git"
     # Phase C: synthetic gh config with placeholder token (not real creds).
     --mount "ro:$PHASE_C_TMPDIR/gh:/home/claude/.config/gh"
     # Phase C: sandbox credential helper + git config overlay.
@@ -138,20 +185,29 @@ ENVS=(
     --env "GIT_CONFIG_VALUE_0=/opt/sandbox/sandbox-credentials.inc"
 )
 
-# ---------- container-only OAuth token ----------
-# If CLAUDE_DOCKER_OAUTH_TOKEN is set on the host, pass it in as
-# CLAUDE_CODE_OAUTH_TOKEN and mask the host's ~/.claude/.credentials.json with a
-# throwaway file so the container uses this token instead of the host's creds.
-CRED_MASK=""
+# ---------- Phase C: Claude OAuth token → sidecar, not agent ----------
+# If CLAUDE_DOCKER_OAUTH_TOKEN is set on the host, route it through the sidecar
+# proxy instead of passing the real token into the agent container. The agent
+# gets a placeholder; the sidecar injects the real Bearer token on outbound
+# requests to Anthropic API endpoints.
+#
+# Always mask .credentials.json so the agent can't read stored auth tokens from
+# the mounted ~/.claude directory (which is rw for session state).
+CRED_MASK="$(mktemp)"
 cleanup() {
-    rm -f ${CRED_MASK:+"$CRED_MASK"}
+    rm -f "$CRED_MASK"
     rm -rf "$PHASE_C_TMPDIR"
 }
 trap cleanup EXIT
+
+# Mask .credentials.json unconditionally — the real file in ~/.claude/ must
+# never be readable by the agent, regardless of whether the OAuth env var is set.
+MOUNTS+=( --mount "rw:${CRED_MASK}:/home/claude/.claude/.credentials.json" )
+
 if [[ -n "${CLAUDE_DOCKER_OAUTH_TOKEN:-}" ]]; then
-    ENVS+=( --env "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_DOCKER_OAUTH_TOKEN}" )
-    CRED_MASK="$(mktemp)"
-    MOUNTS+=( --mount "rw:${CRED_MASK}:/home/claude/.claude/.credentials.json" )
+    # Phase C: agent gets a placeholder OAuth token. The sidecar proxy
+    # (via SANDBOX_CRED_CLAUDE_OAUTH) injects the real Bearer token.
+    ENVS+=( --env "CLAUDE_CODE_OAUTH_TOKEN=SANDBOX-PLACEHOLDER-CLAUDE-OAUTH" )
 fi
 
 # ---------- hand off to the generic core ----------

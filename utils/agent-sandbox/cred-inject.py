@@ -164,6 +164,8 @@ class CredentialInjector:
                 self._inject_basic_auth(flow, svc)
             elif svc.mode == "header":
                 self._inject_header(flow, svc)
+            elif svc.mode == "bearer":
+                self._inject_bearer(flow, svc)
             else:
                 logger.warning(
                     "Unknown injection mode '%s' for service %s",
@@ -248,6 +250,39 @@ class CredentialInjector:
                 svc.name,
                 flow.request.pretty_host,
             )
+
+    def _inject_bearer(self, flow: http.HTTPFlow, svc: ServiceConfig):
+        """Replace placeholder Bearer token in Authorization header."""
+        auth_header = flow.request.headers.get("Authorization", "")
+
+        if svc.placeholder and svc.placeholder in auth_header:
+            # Placeholder swap within the existing header.
+            flow.request.headers["Authorization"] = auth_header.replace(
+                svc.placeholder, svc.real_credential
+            )
+            logger.debug(
+                "Injected %s Bearer credential (placeholder swap) for %s",
+                svc.name,
+                flow.request.pretty_host,
+            )
+        elif auth_header.lower().startswith("bearer ") and svc.placeholder and svc.placeholder in auth_header:
+            # Already covered above, but explicit for clarity.
+            pass
+        elif not auth_header:
+            # No auth header — inject one.
+            flow.request.headers["Authorization"] = (
+                f"Bearer {svc.real_credential}"
+            )
+            logger.debug(
+                "Injected %s Bearer credential (new header) for %s",
+                svc.name,
+                flow.request.pretty_host,
+            )
+        else:
+            # Auth header exists but doesn't contain our placeholder — don't
+            # clobber it. It may be from another service (e.g. x-api-key is
+            # handled by the 'header' mode for the same domain).
+            pass
 
     def _inject_header(self, flow: http.HTTPFlow, svc: ServiceConfig):
         """Set a specific header to the real credential value."""

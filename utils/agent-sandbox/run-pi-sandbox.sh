@@ -83,25 +83,86 @@ cat > "$PHASE_C_TMPDIR/gitconfig.d/sandbox-credentials.inc" <<'GITEOF'
     helper = /opt/sandbox/git-credential-sandbox.sh
 GITEOF
 
+# Sanitize the host gitconfig: copy it but strip credential helper sections.
+if [[ -f "${HOME}/.gitconfig" ]]; then
+    python3 -c "
+import re, sys
+text = open(sys.argv[1]).read()
+text = re.sub(
+    r'\[credential[^\]]*\]\n(?:[ \t]+[^\n]*\n)*',
+    '',
+    text
+)
+open(sys.argv[2], 'w').write(text)
+" "${HOME}/.gitconfig" "$PHASE_C_TMPDIR/gitconfig-sanitized"
+else
+    touch "$PHASE_C_TMPDIR/gitconfig-sanitized"
+fi
+
+# Sanitize ~/.config/git/config similarly.
+mkdir -p "$PHASE_C_TMPDIR/config-git"
+if [[ -f "${HOME}/.config/git/config" ]]; then
+    python3 -c "
+import re, sys
+text = open(sys.argv[1]).read()
+text = re.sub(
+    r'\[credential[^\]]*\]\n(?:[ \t]+[^\n]*\n)*',
+    '',
+    text
+)
+open(sys.argv[2], 'w').write(text)
+" "${HOME}/.config/git/config" "$PHASE_C_TMPDIR/config-git/config"
+else
+    touch "$PHASE_C_TMPDIR/config-git/config"
+fi
+for f in "${HOME}/.config/git/"*; do
+    fname="$(basename "$f")"
+    [[ "$fname" == "config" ]] && continue
+    if [[ ! -e "$PHASE_C_TMPDIR/config-git/$fname" ]]; then
+        cp -a "$f" "$PHASE_C_TMPDIR/config-git/$fname" 2>/dev/null || true
+    fi
+done
+
+# Sanitize pi config: copy settings.json and auth.json with real API keys
+# replaced by placeholders. Pi needs these files to start, but the real keys
+# go through the sidecar proxy.
+PI_CONFIG_DIR="${PI_CODING_AGENT_DIR:-${HOME}/.pi/agent}"
+mkdir -p "$PHASE_C_TMPDIR/pi-config"
+
+# Copy the full pi config dir structure (sessions, etc.) but sanitize auth files.
+if [[ -d "$PI_CONFIG_DIR" ]]; then
+    # settings.json / auth.json: replace real API keys with placeholders.
+    for authfile in settings.json auth.json; do
+        if [[ -f "$PI_CONFIG_DIR/$authfile" ]]; then
+            # Replace any sk-ant-* key with the placeholder.
+            sed 's/sk-ant-[A-Za-z0-9_-]*/SANDBOX-PLACEHOLDER-ANTHROPIC-KEY/g' \
+                "$PI_CONFIG_DIR/$authfile" > "$PHASE_C_TMPDIR/pi-config/$authfile"
+        fi
+    done
+fi
+
 cleanup_pi() { rm -rf "$PHASE_C_TMPDIR"; }
 trap cleanup_pi EXIT
 
 # ---------- pi-specific bind mounts ----------
 # The container user is still 'claude' (generalising is deferred per README).
 
-PI_CONFIG_DIR="${PI_CODING_AGENT_DIR:-${HOME}/.pi/agent}"
-
 MOUNTS=(
     # Mount the entire /nix/store so pi's full closure (node, fd, ripgrep, etc.)
     # is available. This is a zero-copy bind mount.
     --mount "ro:/nix/store:/nix/store"
     # Pi config and state — rw because pi writes sessions, settings.
+    # The directory itself is mounted rw (pi writes sessions), but auth files
+    # are masked with sanitized copies containing placeholder keys.
     --mount "rw:${PI_CONFIG_DIR}:/home/claude/.pi/agent"
+    # Phase C: mask auth files with sanitized copies (placeholder keys).
+    --mount "ro:$PHASE_C_TMPDIR/pi-config/settings.json:/home/claude/.pi/agent/settings.json"
+    --mount "ro:$PHASE_C_TMPDIR/pi-config/auth.json:/home/claude/.pi/agent/auth.json"
     # Host dotfiles (for AGENTS.md, project instructions, etc.)
     --mount "ro:${HOME}/.dotfiles:/home/claude/.dotfiles"
-    # Git config (needed for commits, gh CLI, etc.)
-    --mount "ro:${HOME}/.gitconfig:/home/claude/.gitconfig"
-    --mount "ro:${HOME}/.config/git/:/home/claude/.config/git/"
+    # Phase C: sanitized gitconfig — credential helper sections stripped.
+    --mount "ro:$PHASE_C_TMPDIR/gitconfig-sanitized:/home/claude/.gitconfig"
+    --mount "ro:$PHASE_C_TMPDIR/config-git:/home/claude/.config/git"
     # Phase C: synthetic gh config with placeholder token (not real creds).
     --mount "ro:$PHASE_C_TMPDIR/gh:/home/claude/.config/gh"
     # Phase C: sandbox credential helper + git config overlay.
