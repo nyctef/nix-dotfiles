@@ -28,6 +28,11 @@
       setw -g pane-base-index 1
       set -g renumber-windows on
 
+      # Show pane title (set by apps via OSC escape sequences) in the window
+      # list instead of just the process name. Fish sets this to the cwd,
+      # pi sets it to "π - <project>", etc.
+      setw -g automatic-rename-format '#{pane_title}'
+
       # dim inactive panes
       setw -g window-active-style fg=terminal,bg=terminal
       setw -g window-style fg=colour245,bg=colour236
