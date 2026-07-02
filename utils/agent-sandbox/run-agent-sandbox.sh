@@ -242,13 +242,21 @@ if [[ -n "$_GH_TOKEN" ]]; then
 fi
 unset _GH_TOKEN
 
-# NuGet PAT: from the same env var the old mount used.
-_NUGET_PAT="${SANDBOX_CRED_NUGET_PAT:-${NuGetPackageSourceCredentials_red_gate_vsts_main_v3:-}}"
+# NuGet PAT: read directly from the agenix secret file (the session env var
+# NuGetPackageSourceCredentials_red_gate_vsts_main_v3 uses waitcat/shell
+# expansion that doesn't survive into scripts reliably). Fall back to explicit
+# env vars if the secret file isn't available.
+_NUGET_SECRET="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/agenix/rgPackagingRead"
+if [[ -r "$_NUGET_SECRET" ]]; then
+    _NUGET_PAT="$(cat "$_NUGET_SECRET")"
+else
+    _NUGET_PAT="${SANDBOX_CRED_NUGET_PAT:-${NuGetPackageSourceCredentials_red_gate_vsts_main_v3:-}}"
+fi
 if [[ -n "$_NUGET_PAT" ]]; then
     SIDECAR_CRED_ENV+=(-e "SANDBOX_CRED_NUGET_PAT=$_NUGET_PAT")
     echo "  Credential: NuGet PAT → sidecar (placeholder to agent)"
 fi
-unset _NUGET_PAT
+unset _NUGET_PAT _NUGET_SECRET
 
 # Anthropic API key.
 _ANTHROPIC_KEY="${ANTHROPIC_API_KEY:-}"
