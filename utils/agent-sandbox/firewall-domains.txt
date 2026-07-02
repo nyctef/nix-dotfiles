@@ -59,6 +59,9 @@ azuredatabricks.net
 # ---- TeamCity (CI build server) ----
 buildserver.red-gate.com
 
+# ---- Brave Search API ----
+api.search.brave.com
+
 # ---- .NET ----
 dotnet.microsoft.com
 dot.net

@@ -220,6 +220,8 @@ ENVS=(
     --env "NODE_OPTIONS=--max-old-space-size=4096"
     # Phase C: placeholder API keys. Real keys are in the sidecar proxy.
     --env "ANTHROPIC_API_KEY=SANDBOX-PLACEHOLDER-ANTHROPIC-KEY"
+    # Phase C: Brave Search API key placeholder for pi's web_search tool.
+    --env "BRAVE_SEARCH_API_KEY=SANDBOX-PLACEHOLDER-BRAVE-SEARCH-KEY"
     # Phase C: NuGet gets the placeholder PAT. The real PAT is in the sidecar
     # proxy, which swaps it in outbound requests to VSTS feeds.
     --env "NuGetPackageSourceCredentials_red_gate_vsts_main_v3=Username=username;Password=SANDBOX-PLACEHOLDER-NUGET-PAT"

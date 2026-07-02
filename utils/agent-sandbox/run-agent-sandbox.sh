@@ -286,6 +286,17 @@ if [[ -n "$_CLAUDE_OAUTH" ]]; then
 fi
 unset _CLAUDE_OAUTH
 
+# Brave Search API key (X-Subscription-Token for api.search.brave.com).
+# Decrypted from secrets/brave-search-api-key.age by agenix.
+_BRAVE_SECRET="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/agenix/brave-search-api-key"
+if [[ -r "$_BRAVE_SECRET" ]]; then
+    _BRAVE_KEY="$(cat "$_BRAVE_SECRET")"
+    SIDECAR_CRED_ENV+=(-e "SANDBOX_CRED_BRAVE_SEARCH_KEY=$_BRAVE_KEY")
+    echo "  Credential: Brave Search API key → sidecar (placeholder to agent)"
+    unset _BRAVE_KEY
+fi
+unset _BRAVE_SECRET
+
 # TeamCity read token (Bearer auth for buildserver.red-gate.com).
 # Decrypted from secrets/teamcity-read-token.age by agenix into
 # $XDG_RUNTIME_DIR/agenix/teamcityReadToken. Read directly from the secret
