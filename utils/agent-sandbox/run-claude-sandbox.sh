@@ -181,7 +181,7 @@ ENVS=(
     --env "NODE_OPTIONS=--max-old-space-size=4096"
     # Phase C: NuGet gets the placeholder PAT. The real PAT is in the sidecar
     # proxy, which swaps it in outbound requests to VSTS feeds.
-    --env "NuGetPackageSourceCredentials_red_gate_vsts_main_v3=SANDBOX-PLACEHOLDER-NUGET-PAT"
+    --env "NuGetPackageSourceCredentials_red_gate_vsts_main_v3=Username=username;Password=SANDBOX-PLACEHOLDER-NUGET-PAT"
     # Phase C: Claude auth — use CLAUDE_CODE_OAUTH_TOKEN (not ANTHROPIC_API_KEY)
     # because Claude Code silently accepts CLAUDE_CODE_OAUTH_TOKEN, while
     # ANTHROPIC_API_KEY triggers an interactive "Detected a custom API key"

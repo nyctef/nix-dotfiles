@@ -246,17 +246,29 @@ unset _GH_TOKEN
 # NuGetPackageSourceCredentials_red_gate_vsts_main_v3 uses waitcat/shell
 # expansion that doesn't survive into scripts reliably). Fall back to explicit
 # env vars if the secret file isn't available.
+#
+# The secret file (and the session env var) use NuGet's credential format:
+#   Username=username;Password=<actual-PAT>
+# The sidecar proxy needs just the raw PAT (it constructs its own Basic auth
+# header), so we strip the wrapper here.
 _NUGET_SECRET="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/agenix/rgPackagingRead"
 if [[ -r "$_NUGET_SECRET" ]]; then
-    _NUGET_PAT="$(cat "$_NUGET_SECRET")"
+    _NUGET_RAW="$(cat "$_NUGET_SECRET")"
 else
-    _NUGET_PAT="${SANDBOX_CRED_NUGET_PAT:-${NuGetPackageSourceCredentials_red_gate_vsts_main_v3:-}}"
+    _NUGET_RAW="${SANDBOX_CRED_NUGET_PAT:-${NuGetPackageSourceCredentials_red_gate_vsts_main_v3:-}}"
+fi
+# Extract just the PAT from "Username=...;Password=<PAT>" format.
+# If the value doesn't match that format, use it as-is (already a bare PAT).
+if [[ "$_NUGET_RAW" == *"Password="* ]]; then
+    _NUGET_PAT="${_NUGET_RAW##*Password=}"
+else
+    _NUGET_PAT="$_NUGET_RAW"
 fi
 if [[ -n "$_NUGET_PAT" ]]; then
     SIDECAR_CRED_ENV+=(-e "SANDBOX_CRED_NUGET_PAT=$_NUGET_PAT")
     echo "  Credential: NuGet PAT → sidecar (placeholder to agent)"
 fi
-unset _NUGET_PAT _NUGET_SECRET
+unset _NUGET_PAT _NUGET_RAW _NUGET_SECRET
 
 # Anthropic API key.
 _ANTHROPIC_KEY="${ANTHROPIC_API_KEY:-}"
