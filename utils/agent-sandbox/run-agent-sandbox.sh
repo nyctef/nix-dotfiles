@@ -266,6 +266,19 @@ if [[ -n "$_CLAUDE_OAUTH" ]]; then
 fi
 unset _CLAUDE_OAUTH
 
+# TeamCity read token (Bearer auth for buildserver.red-gate.com).
+# Decrypted from secrets/teamcity-read-token.age by agenix into
+# $XDG_RUNTIME_DIR/agenix/teamcityReadToken. Read directly from the secret
+# file rather than relying on a session environment variable.
+_TC_SECRET="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/agenix/teamcityReadToken"
+if [[ -r "$_TC_SECRET" ]]; then
+    _TEAMCITY_TOKEN="$(cat "$_TC_SECRET")"
+    SIDECAR_CRED_ENV+=(-e "SANDBOX_CRED_TEAMCITY_TOKEN=$_TEAMCITY_TOKEN")
+    echo "  Credential: TeamCity read token → sidecar (placeholder to agent)"
+    unset _TEAMCITY_TOKEN
+fi
+unset _TC_SECRET
+
 # ---------- cleanup ----------
 
 cleanup() {

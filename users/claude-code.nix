@@ -23,6 +23,9 @@ let
   oauthTokenSecret = ../secrets/claude-code-oauth-token.age;
   hasOauthToken = builtins.pathExists oauthTokenSecret;
 
+  teamcityTokenSecret = ../secrets/teamcity-read-token.age;
+  hasTeamcityToken = builtins.pathExists teamcityTokenSecret;
+
   # Extract seccomp filter files from the @anthropic-ai/sandbox-runtime npm package.
   # Claude Code's sandbox uses seccomp (Linux kernel syscall filtering) to block
   # unix domain sockets, preventing sandboxed processes from escaping via local IPC.
@@ -64,6 +67,8 @@ in
     # secrets/claude-code-oauth-token.age exists.
     age.secrets = lib.optionalAttrs hasOauthToken {
       claudeCodeOauthToken.file = oauthTokenSecret;
+    } // lib.optionalAttrs hasTeamcityToken {
+      teamcityReadToken.file = teamcityTokenSecret;
     };
     home.sessionVariables = lib.optionalAttrs hasOauthToken {
       # waitcat (not cat) because the shell may start before agenix has decrypted.

@@ -56,6 +56,9 @@ dev.mysql.com
 docs.databricks.com
 azuredatabricks.net
 
+# ---- TeamCity (CI build server) ----
+buildserver.red-gate.com
+
 # ---- .NET ----
 dotnet.microsoft.com
 dot.net
