@@ -123,6 +123,15 @@ for f in "${HOME}/.config/git/"*; do
     fi
 done
 
+# NuGet config with placeholder PAT.
+mkdir -p "$PHASE_C_TMPDIR/nuget/config"
+if [[ -f "${HOME}/.config/NuGet/NuGet.Config" ]]; then
+    cp "${HOME}/.config/NuGet/NuGet.Config" "$PHASE_C_TMPDIR/nuget/NuGet.Config"
+fi
+if [[ -f "${HOME}/.config/NuGet/config/rg.config" ]]; then
+    cp "${HOME}/.config/NuGet/config/rg.config" "$PHASE_C_TMPDIR/nuget/config/rg.config"
+fi
+
 # Sanitize pi config: copy settings.json and auth.json with real API keys
 # replaced by placeholders. Pi needs these files to start, but the real keys
 # go through the sidecar proxy.
@@ -180,6 +189,10 @@ MOUNTS=(
     # Phase C: mask auth files with sanitized copies (placeholder keys).
     --mount "ro:$PHASE_C_TMPDIR/pi-config/settings.json:/home/claude/.pi/agent/settings.json"
     --mount "ro:$PHASE_C_TMPDIR/pi-config/auth.json:/home/claude/.pi/agent/auth.json"
+    # NuGet: host config structure preserved (proxy injects real PAT).
+    --mount "ro:$PHASE_C_TMPDIR/nuget/NuGet.Config:/home/claude/.config/NuGet/NuGet.Config"
+    --mount "ro:$PHASE_C_TMPDIR/nuget/config/rg.config:/home/claude/.config/NuGet/config/rg.config"
+    --mount "rw:${HOME}/.nuget/packages:/home/claude/.nuget/packages"
     # Host dotfiles (for AGENTS.md, project instructions, etc.)
     --mount "ro:${HOME}/.dotfiles:/home/claude/.dotfiles"
     # Phase C: sanitized gitconfig — credential helper sections stripped.
@@ -207,6 +220,9 @@ ENVS=(
     --env "NODE_OPTIONS=--max-old-space-size=4096"
     # Phase C: placeholder API keys. Real keys are in the sidecar proxy.
     --env "ANTHROPIC_API_KEY=SANDBOX-PLACEHOLDER-ANTHROPIC-KEY"
+    # Phase C: NuGet gets the placeholder PAT. The real PAT is in the sidecar
+    # proxy, which swaps it in outbound requests to VSTS feeds.
+    --env "NuGetPackageSourceCredentials_red_gate_vsts_main_v3=Username=username;Password=SANDBOX-PLACEHOLDER-NUGET-PAT"
     # Phase C: git config include for the sandbox credential helper.
     --env "GIT_CONFIG_COUNT=1"
     --env "GIT_CONFIG_KEY_0=include.path"
