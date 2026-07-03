@@ -20,6 +20,12 @@ in
       # Global agent instructions, auto-loaded by pi at session startup.
       # Same content is mounted at ~/.claude/CLAUDE.md by users/claude-code.nix.
       home.file.".pi/agent/AGENTS.md".source = ../agent-instructions.md;
+
+      # Just make settings a readonly file for now instead of trying to use
+      # a patch script like the claude code equivalent. We'll lose any 
+      # settings mutation done from within pi but hopefully it doesn't
+      # complain as much
+      home.file.".pi/agent/settings.json".source = ./settings.json;
     }
 
     (lib.mkIf config.pi.webSearch.enable {
