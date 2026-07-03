@@ -26,6 +26,10 @@ in
       # settings mutation done from within pi but hopefully it doesn't
       # complain as much
       home.file.".pi/agent/settings.json".source = ./settings.json;
+
+      # Bridge extension: loads .claude/skills from the current project into pi
+      # so that Claude Code project skills are available as /skill: commands.
+      home.file.".pi/agent/extensions/claude-skills-bridge.ts".source = ./claude-skills-bridge.ts;
     }
 
     (lib.mkIf config.pi.webSearch.enable {
