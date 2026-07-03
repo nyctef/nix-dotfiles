@@ -132,7 +132,7 @@ if [[ -f "${HOME}/.config/NuGet/config/rg.config" ]]; then
     cp "${HOME}/.config/NuGet/config/rg.config" "$PHASE_C_TMPDIR/nuget/config/rg.config"
 fi
 
-# Sanitize pi config: copy settings.json and auth.json with real API keys
+# Sanitize pi config: copy auth.json with real API keys
 # replaced by placeholders. Pi needs these files to start, but the real keys
 # go through the sidecar proxy.
 PI_CONFIG_DIR="${PI_CODING_AGENT_DIR:-${HOME}/.pi/agent}"
@@ -162,14 +162,12 @@ fi
 
 # Copy the full pi config dir structure (sessions, etc.) but sanitize auth files.
 if [[ -d "$PI_CONFIG_DIR" ]]; then
-    # settings.json / auth.json: replace real API keys with placeholders.
-    for authfile in settings.json auth.json; do
-        if [[ -f "$PI_CONFIG_DIR/$authfile" ]]; then
-            # Replace any sk-ant-* key with the placeholder.
-            sed 's/sk-ant-[A-Za-z0-9_-]*/SANDBOX-PLACEHOLDER-ANTHROPIC-KEY/g' \
-                "$PI_CONFIG_DIR/$authfile" > "$PHASE_C_TMPDIR/pi-config/$authfile"
-        fi
-    done
+    # auth.json: replace real API keys with placeholders.
+    if [[ -f "$PI_CONFIG_DIR/auth.json" ]]; then
+        # Replace any sk-ant-* key with the placeholder.
+        sed 's/sk-ant-[A-Za-z0-9_-]*/SANDBOX-PLACEHOLDER-ANTHROPIC-KEY/g' \
+            "$PI_CONFIG_DIR/auth.json" > "$PHASE_C_TMPDIR/pi-config/auth.json"
+    fi
 fi
 
 cleanup_pi() { rm -rf "$PHASE_C_TMPDIR"; }
@@ -186,8 +184,7 @@ MOUNTS=(
     # The directory itself is mounted rw (pi writes sessions), but auth files
     # are masked with sanitized copies containing placeholder keys.
     --mount "rw:${PI_CONFIG_DIR}:/home/claude/.pi/agent"
-    # Phase C: mask auth files with sanitized copies (placeholder keys).
-    --mount "ro:$PHASE_C_TMPDIR/pi-config/settings.json:/home/claude/.pi/agent/settings.json"
+    # Phase C: mask auth.json with a sanitized copy (placeholder keys).
     --mount "ro:$PHASE_C_TMPDIR/pi-config/auth.json:/home/claude/.pi/agent/auth.json"
     # NuGet: host config structure preserved (proxy injects real PAT).
     --mount "ro:$PHASE_C_TMPDIR/nuget/NuGet.Config:/home/claude/.config/NuGet/NuGet.Config"
