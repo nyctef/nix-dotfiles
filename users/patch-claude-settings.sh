@@ -27,7 +27,7 @@ DECLARATIVE_SETTINGS='
   "extraKnownMarketplaces": {
   },
   "enabledPlugins": {
-    "csharp-lsp@claude-plugins-official": true
+    "csharp-lsp@claude-plugins-official": false
   },
   "hooks": {
     "Notification": [
