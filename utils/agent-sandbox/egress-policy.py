@@ -11,6 +11,7 @@ Loaded via: mitmdump --mode transparent --set confdir=/etc/mitmproxy \
                       -s /opt/egress-policy.py
 """
 
+import fnmatch
 import logging
 import re
 from pathlib import Path
@@ -38,13 +39,24 @@ def _load_domains(path: str) -> list[str]:
     return domains
 
 
-def _is_allowed(hostname: str, allowed: list[str]) -> bool:
-    """Check if hostname matches any allowed domain (exact or subdomain)."""
+def _host_matches_domain(hostname: str, domain: str) -> bool:
+    """Match a single hostname against one allowlist entry.
+
+    An entry containing '*' is treated as an fnmatch glob against the full
+    hostname (e.g. "*vsblobprod*.blob.core.windows.net" for Azure DevOps package
+    blobs, whose storage-account subdomain rotates by region). A plain entry
+    matches exactly or as a parent domain (subdomain match)."""
     hostname = hostname.lower().rstrip(".")
-    for domain in allowed:
-        if hostname == domain or hostname.endswith("." + domain):
-            return True
-    return False
+    if "*" in domain:
+        # Entries are already lowercased at load time; fnmatchcase keeps matching
+        # deterministic across platforms (plain fnmatch would apply os.path.normcase).
+        return fnmatch.fnmatchcase(hostname, domain)
+    return hostname == domain or hostname.endswith("." + domain)
+
+
+def _is_allowed(hostname: str, allowed: list[str]) -> bool:
+    """Check if hostname matches any allowed domain (exact, subdomain, or glob)."""
+    return any(_host_matches_domain(hostname, domain) for domain in allowed)
 
 
 class EgressPolicy:
@@ -108,10 +120,10 @@ class EgressPolicy:
             getattr(flow, "_ctx", None), "blocked_sni", None
         )
         if client_sni and host.lower() != client_sni.lower():
-            # Allow if both are subdomains of the same allowed domain
+            # Allow if both the Host and the SNI match the same allowed entry
+            # (exact, subdomain, or glob).
             sni_ok = any(
-                (host.lower() == d or host.lower().endswith("." + d))
-                and (client_sni.lower() == d or client_sni.lower().endswith("." + d))
+                _host_matches_domain(host, d) and _host_matches_domain(client_sni, d)
                 for d in self.allowed_domains
             )
             if not sni_ok:
