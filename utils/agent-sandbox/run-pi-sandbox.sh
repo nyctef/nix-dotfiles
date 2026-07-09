@@ -50,14 +50,11 @@ fi
 
 PHASE_C_TMPDIR="$(mktemp -d)"
 
-# GitHub CLI: synthetic hosts.yml with the placeholder token.
-mkdir -p "$PHASE_C_TMPDIR/gh"
-cat > "$PHASE_C_TMPDIR/gh/hosts.yml" <<'GHEOF'
-github.com:
-    oauth_token: SANDBOX-PLACEHOLDER-GH-TOKEN
-    user: sandbox-agent
-    git_protocol: https
-GHEOF
+# GitHub CLI: the placeholder token is passed via the GH_TOKEN env var (see
+# ENVS below) rather than a synthetic hosts.yml. gh reads the token from env
+# without touching its config dir, so it never attempts the config-format
+# migration that fails against a read-only ~/.config/gh mount. The sidecar
+# swaps the placeholder for the real PAT on outbound requests.
 
 # Git credential helper: returns placeholder tokens for the proxy to swap.
 cat > "$PHASE_C_TMPDIR/git-credential-sandbox.sh" <<'GCEOF'
@@ -195,8 +192,6 @@ MOUNTS=(
     # Phase C: sanitized gitconfig — credential helper sections stripped.
     --mount "ro:$PHASE_C_TMPDIR/gitconfig-sanitized:/home/claude/.gitconfig"
     --mount "ro:$PHASE_C_TMPDIR/config-git:/home/claude/.config/git"
-    # Phase C: synthetic gh config with placeholder token (not real creds).
-    --mount "ro:$PHASE_C_TMPDIR/gh:/home/claude/.config/gh"
     # Phase C: sandbox credential helper + git config overlay.
     --mount "ro:$PHASE_C_TMPDIR/git-credential-sandbox.sh:/opt/sandbox/git-credential-sandbox.sh"
     --mount "ro:$PHASE_C_TMPDIR/gitconfig.d/sandbox-credentials.inc:/opt/sandbox/sandbox-credentials.inc"
@@ -222,6 +217,9 @@ ENVS=(
     # Phase C: NuGet gets the placeholder PAT. The real PAT is in the sidecar
     # proxy, which swaps it in outbound requests to VSTS feeds.
     --env "NuGetPackageSourceCredentials_red_gate_vsts_main_v3=Username=username;Password=SANDBOX-PLACEHOLDER-NUGET-PAT"
+    # gh CLI reads the placeholder token from env (no config-dir writes).
+    # Sidecar swaps it for the real PAT on outbound requests.
+    --env "GH_TOKEN=SANDBOX-PLACEHOLDER-GH-TOKEN"
     # Phase C: git config include for the sandbox credential helper.
     --env "GIT_CONFIG_COUNT=1"
     --env "GIT_CONFIG_KEY_0=include.path"

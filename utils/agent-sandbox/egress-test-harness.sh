@@ -484,16 +484,19 @@ else
     skip "GitHub API credential test (no proxy configured)"
 fi
 
-# Test that gh CLI works with the placeholder config.
-if command -v gh &>/dev/null && [[ -f /home/claude/.config/gh/hosts.yml ]]; then
+# Test that gh CLI works with the placeholder token from GH_TOKEN.
+# gh reads the token from the env var (no config-file migration writes), sends
+# it as an Authorization header, and cred-inject swaps the placeholder for the
+# real PAT in the sidecar — same path the curl API test above exercises.
+if command -v gh &>/dev/null && [[ -n "${GH_TOKEN:-}" ]]; then
     GH_CLI_OUTPUT="$(gh auth status 2>&1)" && GH_CLI_STATUS=0 || GH_CLI_STATUS=$?
-    if echo "$GH_CLI_OUTPUT" | grep -qi 'logged in'; then
-        pass "gh CLI: auth status reports logged in (placeholder config works)"
+    if [[ $GH_CLI_STATUS -eq 0 ]] && echo "$GH_CLI_OUTPUT" | grep -qi 'logged in'; then
+        pass "gh CLI: auth status reports logged in (placeholder swapped in sidecar)"
     else
-        skip "gh CLI: auth status did not report logged in (may need real token in sidecar)"
+        fail "gh CLI: auth status failed (exit $GH_CLI_STATUS): $(echo "$GH_CLI_OUTPUT" | tr '\n' ' ')"
     fi
 else
-    skip "gh CLI credential test (gh not available or no config)"
+    skip "gh CLI credential test (gh not available or GH_TOKEN unset)"
 fi
 
 # ── 16. GitHub write-scoping policy (github-policy.py) ──────────────────────────

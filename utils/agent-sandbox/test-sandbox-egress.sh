@@ -42,14 +42,6 @@ PHASE_C_TMPDIR="$(mktemp -d)"
 cleanup_test() { rm -rf "$PHASE_C_TMPDIR"; }
 trap cleanup_test EXIT
 
-mkdir -p "$PHASE_C_TMPDIR/gh"
-cat > "$PHASE_C_TMPDIR/gh/hosts.yml" <<'GHEOF'
-github.com:
-    oauth_token: SANDBOX-PLACEHOLDER-GH-TOKEN
-    user: sandbox-agent
-    git_protocol: https
-GHEOF
-
 cat > "$PHASE_C_TMPDIR/git-credential-sandbox.sh" <<'GCEOF'
 #!/bin/sh
 host=""
@@ -76,9 +68,9 @@ GITEOF
 exec "$HERE/run-agent-sandbox.sh" \
     --agent-cmd "bash /opt/egress-test-harness.sh" \
     --mount "ro:$HERE/egress-test-harness.sh:/opt/egress-test-harness.sh" \
-    --mount "ro:$PHASE_C_TMPDIR/gh:/home/claude/.config/gh" \
     --mount "ro:$PHASE_C_TMPDIR/git-credential-sandbox.sh:/opt/sandbox/git-credential-sandbox.sh" \
     --mount "ro:$PHASE_C_TMPDIR/gitconfig.d/sandbox-credentials.inc:/opt/sandbox/sandbox-credentials.inc" \
     --env "SKIP_DOCKER_TESTS=${SKIP_DOCKER:-}" \
     --env "CLAUDE_CODE_OAUTH_TOKEN=SANDBOX-PLACEHOLDER-CLAUDE-OAUTH" \
+    --env "GH_TOKEN=SANDBOX-PLACEHOLDER-GH-TOKEN" \
     -- # no extra agent args
