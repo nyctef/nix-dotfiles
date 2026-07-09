@@ -1,0 +1,14 @@
+# GitHub owners/orgs the sandboxed agent is allowed to WRITE to.
+#
+# Reads (GET/HEAD) to GitHub are always allowed. Writes — REST POST/PUT/PATCH/
+# DELETE, git push (receive-pack), and GraphQL mutations — are permitted only
+# when the target owner/org is listed here (case-insensitive, exact match on
+# the owner path segment). Owner-less writes (gists, /user/*, app management)
+# are always denied.
+#
+# This is a trusted-destination bet: it narrows exfiltration to repos we own,
+# it does not eliminate it. Keep the list tight.
+#
+# One owner per line. Lines starting with # are comments.
+
+red-gate

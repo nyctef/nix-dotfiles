@@ -28,6 +28,9 @@ Unlike the old single-file script, the pieces are split into separate files:
 | `sidecar-entrypoint.sh` | in-sidecar: starts mitmproxy in forward mode, signals ready  |
 | `firewall-domains.txt`  | hostname allowlist — single source of truth for L7 egress policy        |
 | `egress-policy.py`      | mitmproxy addon — enforces hostname allowlist (SNI + Host), anti-fronting |
+| `github-policy.py`      | mitmproxy addon — GitHub write-scoping (reads open; writes → owner allowlist; gists/mutations denied) |
+| `github-write-allowed-owners.txt` | owners/orgs the agent may WRITE to (e.g. red-gate) |
+| `github-policy/`        | offline compiler + generated policy table + unit tests (see below) |
 | `cred-inject.py`        | mitmproxy addon — credential injection (placeholder → real swap) |
 | `credential-map.yaml`   | domain→service→env-var mapping for credential injection |
 | `entrypoint.sh`         | in-agent: install CA, configure proxy env, start inner dockerd, run agent |
@@ -198,6 +201,45 @@ trick) — we don't refactor the old script to share code yet.
   doesn't inject real values yet. Extend `credential-map.yaml` and
   `cred-inject.py` when needed.
 
+### Phase D — GitHub write-scoping (mitigate injection blast radius)  🟡 code complete, e2e pending
+GitHub is a large surface for both prompt injection (read) and exfiltration
+(write). We can't drop GitHub access without losing most of the agent's value,
+so instead of preventing injection we **bound what a hijacked agent can do**:
+
+- **Reads stay open.** GET/HEAD to any GitHub host is allowed. Reads are the
+  injection vector, but exfil *via* read is weak (an attacker can't see
+  GitHub's access logs), so locking reads down would cost ergonomics for little
+  gain.
+- **Writes are owner-scoped.** REST `POST/PUT/PATCH/DELETE`, `git push`
+  (receive-pack), and GraphQL mutations are allowed only when the target
+  owner/org is in `github-write-allowed-owners.txt` (e.g. `red-gate`).
+  Owner-less writes (gists, `/user/*`, app management) are always denied, as are
+  unknown write endpoints (fail-closed).
+- **Grounded in GitHub's own specs, not hand-written regex.**
+  `github-policy/generate-github-policy.py` compiles the pinned REST OpenAPI
+  description (`github/rest-api-description`) and the public GraphQL SDL into
+  `github-policy/github-policy.json` (currently 569 REST write rules — 444
+  owner-scoped, 125 owner-less — and 268 GraphQL mutation names). The committed
+  JSON is the reviewable artifact; regenerate after bumping `REST_COMMIT`.
+  `git clone/fetch` (upload-pack) and the git smart-HTTP paths aren't in either
+  spec, so those three paths are handled structurally.
+- **Enforcement point:** `github-policy.py` runs in the sidecar between
+  `egress-policy.py` and `cred-inject.py`. A blocked write is 403'd *before*
+  `cred-inject.py` runs, and `cred-inject.py` also early-returns on an
+  already-set response — so a denied request never has a real credential minted
+  onto it (fail-closed, belt and suspenders).
+- **Residual risk (documented, not eliminated):** writes to `red-gate` itself
+  are still exfil to a trusted destination; GraphQL mutations can't be
+  owner-scoped (mutations carry opaque node IDs, not owner logins) so they are
+  denied wholesale rather than filtered; and reads remain fully open. This is a
+  blast-radius control, not a wall.
+- **Tests:** `github-policy/test-github-policy.py` unit-tests the pure
+  classifier offline (no mitmproxy needed); `egress-test-harness.sh` §16 drives
+  the live sidecar (foreign read allowed, `git ls-remote` allowed, opening an
+  issue in `nyctef/nix-dotfiles` blocked, gist blocked, GraphQL mutation
+  blocked, GraphQL query allowed). The write-blocked assertions fail loudly on
+  any 2xx, so a policy regression can't masquerade as a pass.
+
 ### Cross-cutting / carry over from the old script
 - Worktree mode, host-absolute-path mounts, Nix symlink resolution, Ctrl-Z
   rcfile trick, build-arg version pinning — copied into the launcher (extracted
@@ -250,7 +292,7 @@ allowlist are in a separate container namespace and are unreachable.
 
 ---
 
-## Current status: Phase A proven, Phase B proven, Phase B.1 proven, Phase C proven
+## Current status: Phase A/B/B.1/C proven; Phase D (GitHub write-scoping) code-complete, e2e pending on the sysbox host
 
 All phases validated end to end on `tachikoma` (NixOS 26.05, WSL2).
 

@@ -148,6 +148,13 @@ class CredentialInjector:
 
     def request(self, flow: http.HTTPFlow):
         """Inject credentials into matching outbound requests."""
+        # If an earlier addon (egress-policy or github-policy) already blocked
+        # this request with a 403, do NOT attach a real credential to it. The
+        # request won't be forwarded, but never mint a real token onto a denied
+        # request — fail closed.
+        if flow.response:
+            return
+
         host = flow.request.pretty_host
         if not host:
             return

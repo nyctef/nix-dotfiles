@@ -33,8 +33,13 @@ pkgs.stdenv.mkDerivation {
     cp run-claude-sandbox.sh run-pi-sandbox.sh run-agent-sandbox.sh test-sandbox-egress.sh \
        egress-test-harness.sh Dockerfile Dockerfile.sidecar entrypoint.sh \
        sidecar-entrypoint.sh \
-       firewall-domains.txt egress-policy.py cred-inject.py \
+       firewall-domains.txt egress-policy.py github-policy.py cred-inject.py \
+       github-write-allowed-owners.txt \
        credential-map.yaml $libexec/
+    # github-policy.json is COPY'd by Dockerfile.sidecar at github-policy/... —
+    # preserve that path in the build context.
+    mkdir -p $libexec/github-policy
+    cp github-policy/github-policy.json $libexec/github-policy/
     chmod +x $libexec/run-claude-sandbox.sh $libexec/run-pi-sandbox.sh $libexec/run-agent-sandbox.sh \
              $libexec/test-sandbox-egress.sh $libexec/egress-test-harness.sh \
              $libexec/entrypoint.sh $libexec/sidecar-entrypoint.sh

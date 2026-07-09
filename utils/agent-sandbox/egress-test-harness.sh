@@ -59,6 +59,28 @@ expect_blocked() {
     fi
 }
 
+# Expect a GitHub write to be blocked *by our policy specifically* — i.e. HTTP
+# 403 whose body carries the sandbox marker. A 2xx here means the write actually
+# reached GitHub (policy failed AND a real mutation may have happened), so we
+# fail loudly rather than treating any non-2xx as success.
+expect_github_write_blocked() {
+    local label="$1" url="$2" method="$3"; shift 3
+    local tmp code body
+    tmp="$(mktemp)"
+    code="$(curl -s -o "$tmp" -w '%{http_code}' -X "$method" \
+        --connect-timeout 5 --max-time 15 "$@" "$url" 2>/dev/null)" || true
+    body="$(cat "$tmp" 2>/dev/null)"; rm -f "$tmp"
+    if [[ "$code" == "403" ]] && grep -qi 'GitHub write-policy' <<<"$body"; then
+        pass "$label (403, sandbox policy)"
+    elif [[ "$code" =~ ^2 ]]; then
+        fail "$label — WRITE SUCCEEDED (HTTP $code); policy did NOT block it!"
+    elif [[ "$code" == "403" ]]; then
+        fail "$label — 403 but not from our policy (body: ${body:0:80})"
+    else
+        fail "$label — expected 403 from policy, got HTTP $code"
+    fi
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # TESTS
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -473,6 +495,54 @@ if command -v gh &>/dev/null && [[ -f /home/claude/.config/gh/hosts.yml ]]; then
 else
     skip "gh CLI credential test (gh not available or no config)"
 fi
+
+# ── 16. GitHub write-scoping policy (github-policy.py) ──────────────────────────
+
+section "GitHub write-scoping (reads open; writes → red-gate only)"
+
+# Reads stay open — including reads of repos we can't write to.
+expect_allowed "GET foreign repo (read allowed)" \
+    "https://api.github.com/repos/nyctef/nix-dotfiles"
+
+# git fetch/clone path (GET /info/refs + POST git-upload-pack) is a read → allowed.
+if command -v git &>/dev/null; then
+    if git ls-remote https://github.com/nyctef/nix-dotfiles HEAD >/dev/null 2>&1; then
+        pass "git ls-remote foreign repo (fetch/clone read allowed)"
+    else
+        fail "git ls-remote foreign repo failed (fetch read should be allowed)"
+    fi
+else
+    skip "git ls-remote — git not available"
+fi
+
+# THE write test: opening an issue in a non-red-gate repo must be blocked by
+# the policy *before* it reaches GitHub. If this ever returns 2xx, a real issue
+# was created — the helper fails loudly in that case.
+expect_github_write_blocked "open issue in nyctef/nix-dotfiles (foreign write blocked)" \
+    "https://api.github.com/repos/nyctef/nix-dotfiles/issues" POST \
+    -H 'Authorization: token SANDBOX-PLACEHOLDER-GH-TOKEN' \
+    -H 'Content-Type: application/json' \
+    -d '{"title":"sandbox-egress-test (should never be created)"}'
+
+# Owner-less write (gist) — no owner to scope, always denied.
+expect_github_write_blocked "create gist (owner-less write blocked)" \
+    "https://api.github.com/gists" POST \
+    -H 'Authorization: token SANDBOX-PLACEHOLDER-GH-TOKEN' \
+    -H 'Content-Type: application/json' \
+    -d '{"public":false,"files":{"x.txt":{"content":"should never be created"}}}'
+
+# GraphQL mutation — not owner-scopable, denied. (A read query still works.)
+expect_github_write_blocked "GraphQL mutation (blocked)" \
+    "https://api.github.com/graphql" POST \
+    -H 'Authorization: token SANDBOX-PLACEHOLDER-GH-TOKEN' \
+    -H 'Content-Type: application/json' \
+    -d '{"query":"mutation { createIssue(input:{repositoryId:\"x\",title:\"y\"}) { issue { id } } }"}'
+
+expect_allowed "GraphQL query (read allowed)" \
+    "https://api.github.com/graphql" \
+    -H 'Authorization: token SANDBOX-PLACEHOLDER-GH-TOKEN' \
+    -H 'Content-Type: application/json' \
+    -d '{"query":"query { viewer { login } }"}'
 
 # ═════════════════════════════════════════════════════════════════════════════
 # SUMMARY
