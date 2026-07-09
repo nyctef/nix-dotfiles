@@ -174,11 +174,14 @@ trick) — we don't refactor the old script to share code yet.
   (`gh auth token`, `ANTHROPIC_API_KEY`, `CLAUDE_DOCKER_OAUTH_TOKEN`, NuGet
   PAT) and passes them to the sidecar via `-e SANDBOX_CRED_*`. Agent container
   never sees them.
-- **Placeholder configs** (agent wrappers): synthetic `~/.config/gh/hosts.yml`,
-  git credential helper (`/opt/sandbox/git-credential-sandbox.sh`), and git
-  config overlay that returns placeholder tokens. NuGet and Anthropic env vars
-  set to placeholder values. Host gitconfig credential helper sections stripped
-  via regex.
+- **Placeholder configs** (agent wrappers): the `gh` CLI placeholder token is
+  passed via the `GH_TOKEN` env var (not a `~/.config/gh/hosts.yml` mount — gh
+  tries to rewrite that file for a config-format migration, which fails against
+  a read-only mount and breaks `gh auth status`; reading from env sidesteps it).
+  Plus a git credential helper (`/opt/sandbox/git-credential-sandbox.sh`) and
+  git config overlay that return placeholder tokens. NuGet and Anthropic env
+  vars set to placeholder values. Host gitconfig credential helper sections
+  stripped via regex.
 - **Real credential mounts removed**: `~/.config/gh` (real), NuGet env var
   (real PAT), `ANTHROPIC_API_KEY` (real), `.credentials.json` (masked with
   empty file) no longer reach the agent container.
