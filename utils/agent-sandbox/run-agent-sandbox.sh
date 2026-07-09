@@ -1,27 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Generic sysbox sandbox launcher — agent-agnostic core (Phase B.1: sidecar).
+# Generic sysbox sandbox launcher — agent-agnostic core.
 #
 # The caller supplies what makes a run agent-specific: the command to launch
 # inside, plus any extra bind mounts and env vars. See run-claude-sandbox.sh for
 # the Claude-specific wrapper that calls this.
 #
-# This is the NEW hardened path, developed alongside the working
-# run-claude-docker.sh (which stays untouched). See README.md.
-#
 #   - Container runs under --runtime=sysbox-runc (unprivileged, real UID
 #     remapping). The agent is the adversary; it must not be privileged.
 #   - dockerd runs INSIDE the container. There is NO host Docker socket mount
-#     and no --docker flag — that hop-to-host-root is exactly what we removed.
+#     and no --docker flag — that hop-to-host-root would be a path to host root.
 #   - /var/lib/docker is a per-instance named volume so parallel agents never
 #     share an inner data-root.
 #
-# Phase B.1: L7 egress enforcement via a sidecar proxy container. The agent
-# container sits on an --internal Docker network whose only route to the
-# internet goes through the sidecar (mitmproxy). Even if the agent gains root
-# and flushes iptables inside its own container, the sidecar's enforcement
-# is unreachable — closing the last residual risk from Phase B.
+# L7 egress enforcement via a sidecar proxy container: the agent container sits
+# on an --internal Docker network whose only route to the internet goes through
+# the sidecar (mitmproxy). Even if the agent gains root and flushes iptables
+# inside its own container, the sidecar's enforcement is unreachable.
 #
 # Usage:
 #   run-agent-sandbox.sh --agent-cmd <cmd> \
@@ -98,7 +94,7 @@ PROXY_PORT=8080
 
 HOST_REPO_DIR="$PWD"
 
-# ---------- worktree setup (copied verbatim from run-claude-docker.sh) ----------
+# ---------- worktree setup ----------
 
 if [[ -n "$WORKTREE_NAME" ]]; then
     REPO_BASENAME="$(basename "$HOST_REPO_DIR")"
@@ -139,7 +135,7 @@ if ! command -v docker &>/dev/null; then
 fi
 
 # Fail early with a clear message if the sysbox runtime isn't registered —
-# this is the whole point of the new path.
+# the sandbox depends on it.
 if ! docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q "$DOCKER_RUNTIME"; then
     echo "ERROR: docker runtime '$DOCKER_RUNTIME' is not registered." >&2
     echo "       Ensure virtualisation.sysbox.enable = true and rebuild." >&2
@@ -221,7 +217,7 @@ for spec in ${ENV_SPECS[@]+"${ENV_SPECS[@]}"}; do
     EXTRA_ENV+=(-e "$spec")
 done
 
-# ---------- resolve host credentials for sidecar injection (Phase C) ----------
+# ---------- resolve host credentials for sidecar injection ----------
 # Real credentials are read here on the host and passed ONLY to the sidecar
 # container. The agent container never sees them — it gets placeholder tokens
 # instead. The sidecar proxy addon (cred-inject.py) swaps placeholders for

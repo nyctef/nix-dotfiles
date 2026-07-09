@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# In-container entrypoint for the sysbox sandbox (Phase B.1: sidecar proxy).
+# In-container entrypoint for the sysbox sandbox.
 #
 # Runs as root (container UID 0, which sysbox remaps to an unprivileged host
 # subuid). Startup sequence:
@@ -112,7 +112,7 @@ DCONF
 fi
 
 # ---------- 4. ensure sandbox helper directory ----------
-# Phase C: the credential helper and git config overlay are bind-mounted into
+# The credential helper and git config overlay are bind-mounted into
 # /opt/sandbox/ by the launcher. Ensure the directory exists and is readable.
 mkdir -p /opt/sandbox
 chmod 755 /opt/sandbox

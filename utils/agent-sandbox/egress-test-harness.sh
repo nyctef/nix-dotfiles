@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# In-container test harness for the sandbox network stack (Phase B.1: sidecar).
+# In-container test harness for the sandbox network stack.
 #
 # Runs as the `claude` user (the "adversary" in our threat model). Tests the
-# full Phase B.1 egress policy: forward proxy on --internal Docker network,
-# L7 hostname allowlist, CA trust, sidecar isolation, and inner dockerd.
+# full egress policy: forward proxy on --internal Docker network, L7 hostname
+# allowlist, CA trust, sidecar isolation, and inner dockerd.
 #
-# Phase B.1 architecture:
+# Architecture:
 #   - Agent on Docker --internal network (host-level iptables block external IPs)
 #   - Sidecar proxy on both internal + bridge (internet)
 #   - Agent uses HTTP_PROXY / HTTPS_PROXY to route through sidecar
@@ -85,7 +85,7 @@ expect_github_write_blocked() {
 # TESTS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-echo -e "\n${BOLD}Agent Sandbox Network Test Harness (Phase B.1: Forward Proxy + --internal)${RESET}"
+echo -e "\n${BOLD}Agent Sandbox Network Test Harness (Forward Proxy + --internal)${RESET}"
 echo "Running as: $(whoami) (uid=$(id -u))"
 echo "Date:       $(date -Iseconds)"
 echo "HTTP_PROXY: ${HTTP_PROXY:-<not set>}"
@@ -415,9 +415,9 @@ echo "  Route table:"
 ip route 2>/dev/null | sed 's/^/    /' || true
 echo "  Proxy: ${HTTP_PROXY:-<not set>}"
 
-# ── 15. Credential injection (Phase C) ────────────────────────────────────────────
+# ── 15. Credential injection ────────────────────────────────────────────
 
-section "Credential injection (Phase C: placeholder → real cred swap)"
+section "Credential injection (placeholder → real cred swap)"
 
 # Verify placeholder env vars are present (not real creds).
 if [[ "${CLAUDE_CODE_OAUTH_TOKEN:-}" == "SANDBOX-PLACEHOLDER-CLAUDE-OAUTH" ]]; then

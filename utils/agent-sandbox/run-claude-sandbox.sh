@@ -32,12 +32,12 @@ if [[ ! -x "$CLAUDE_BINARY" ]]; then
     exit 1
 fi
 
-# ---------- Phase C: generate placeholder configs for credential injection ----------
+# ---------- generate placeholder configs for credential injection ----------
 # Real credentials are passed to the sidecar proxy (by run-agent-sandbox.sh).
 # The agent gets synthetic config files with placeholder tokens that the proxy
 # swaps for real credentials in-flight.
 
-PHASE_C_TMPDIR="$(mktemp -d)"
+CRED_TMPDIR="$(mktemp -d)"
 
 # GitHub CLI: the placeholder token is passed via the GH_TOKEN env var (see
 # ENVS below) rather than a synthetic hosts.yml. gh reads the token from env
@@ -47,7 +47,7 @@ PHASE_C_TMPDIR="$(mktemp -d)"
 
 # Git credential helper: returns the placeholder token for github.com.
 # The proxy swaps it for the real one before it reaches GitHub.
-cat > "$PHASE_C_TMPDIR/git-credential-sandbox.sh" <<'GCEOF'
+cat > "$CRED_TMPDIR/git-credential-sandbox.sh" <<'GCEOF'
 #!/bin/sh
 # Sandbox credential helper: returns placeholder tokens for the proxy to swap.
 # Reads the protocol/host from stdin (git credential fill format).
@@ -64,11 +64,11 @@ case "$host" in
         ;;
 esac
 GCEOF
-chmod +x "$PHASE_C_TMPDIR/git-credential-sandbox.sh"
+chmod +x "$CRED_TMPDIR/git-credential-sandbox.sh"
 
 # Git config overlay: use the sandbox credential helper.
-mkdir -p "$PHASE_C_TMPDIR/gitconfig.d"
-cat > "$PHASE_C_TMPDIR/gitconfig.d/sandbox-credentials.inc" <<'GITEOF'
+mkdir -p "$CRED_TMPDIR/gitconfig.d"
+cat > "$CRED_TMPDIR/gitconfig.d/sandbox-credentials.inc" <<'GITEOF'
 [credential]
     helper = /opt/sandbox/git-credential-sandbox.sh
 GITEOF
@@ -90,13 +90,13 @@ text = re.sub(
     text
 )
 open(sys.argv[2], 'w').write(text)
-" "${HOME}/.gitconfig" "$PHASE_C_TMPDIR/gitconfig-sanitized"
+" "${HOME}/.gitconfig" "$CRED_TMPDIR/gitconfig-sanitized"
 else
-    touch "$PHASE_C_TMPDIR/gitconfig-sanitized"
+    touch "$CRED_TMPDIR/gitconfig-sanitized"
 fi
 
 # Sanitize ~/.config/git/config similarly.
-mkdir -p "$PHASE_C_TMPDIR/config-git"
+mkdir -p "$CRED_TMPDIR/config-git"
 if [[ -f "${HOME}/.config/git/config" ]]; then
     python3 -c "
 import re, sys
@@ -107,33 +107,33 @@ text = re.sub(
     text
 )
 open(sys.argv[2], 'w').write(text)
-" "${HOME}/.config/git/config" "$PHASE_C_TMPDIR/config-git/config"
+" "${HOME}/.config/git/config" "$CRED_TMPDIR/config-git/config"
 else
-    touch "$PHASE_C_TMPDIR/config-git/config"
+    touch "$CRED_TMPDIR/config-git/config"
 fi
 # Copy non-config files from ~/.config/git/ (ignore, hooks, etc.)
 for f in "${HOME}/.config/git/"*; do
     fname="$(basename "$f")"
     [[ "$fname" == "config" ]] && continue
-    if [[ ! -e "$PHASE_C_TMPDIR/config-git/$fname" ]]; then
-        cp -a "$f" "$PHASE_C_TMPDIR/config-git/$fname" 2>/dev/null || true
+    if [[ ! -e "$CRED_TMPDIR/config-git/$fname" ]]; then
+        cp -a "$f" "$CRED_TMPDIR/config-git/$fname" 2>/dev/null || true
     fi
 done
 
 # NuGet config with placeholder PAT.
 # The real NuGet.Config structure is preserved; only the credential value is
 # replaced with the placeholder.
-mkdir -p "$PHASE_C_TMPDIR/nuget/config"
+mkdir -p "$CRED_TMPDIR/nuget/config"
 if [[ -f "${HOME}/.config/NuGet/NuGet.Config" ]]; then
-    cp "${HOME}/.config/NuGet/NuGet.Config" "$PHASE_C_TMPDIR/nuget/NuGet.Config"
+    cp "${HOME}/.config/NuGet/NuGet.Config" "$CRED_TMPDIR/nuget/NuGet.Config"
 fi
 if [[ -f "${HOME}/.config/NuGet/config/rg.config" ]]; then
-    cp "${HOME}/.config/NuGet/config/rg.config" "$PHASE_C_TMPDIR/nuget/config/rg.config"
+    cp "${HOME}/.config/NuGet/config/rg.config" "$CRED_TMPDIR/nuget/config/rg.config"
 fi
 
 # ---------- claude-specific bind mounts ----------
-# Phase C: real credentials replaced with placeholder configs. The sidecar
-# proxy injects real credentials into matching outbound requests.
+# Real credentials are replaced with placeholder configs. The sidecar proxy
+# injects real credentials into matching outbound requests.
 
 MOUNTS=(
     --mount "ro:$CLAUDE_BINARY:/home/claude/.local/bin/claude"
@@ -143,21 +143,21 @@ MOUNTS=(
     # Claude stats/settings file — rw because Claude writes usage stats.
     # NOTE: if this file ever gains auth tokens, it needs sanitizing like
     # the pi auth files. Currently it holds stats/preferences only; primary
-    # auth is via CLAUDE_CODE_OAUTH_TOKEN (now placeholdered) or
+    # auth is via CLAUDE_CODE_OAUTH_TOKEN (a placeholder) or
     # .credentials.json (masked).
     --mount "rw:${HOME}/.claude.json:/home/claude/.claude.json"
     # NuGet: host config structure preserved (proxy injects real PAT).
-    --mount "ro:$PHASE_C_TMPDIR/nuget/NuGet.Config:/home/claude/.config/NuGet/NuGet.Config"
-    --mount "ro:$PHASE_C_TMPDIR/nuget/config/rg.config:/home/claude/.config/NuGet/config/rg.config"
+    --mount "ro:$CRED_TMPDIR/nuget/NuGet.Config:/home/claude/.config/NuGet/NuGet.Config"
+    --mount "ro:$CRED_TMPDIR/nuget/config/rg.config:/home/claude/.config/NuGet/config/rg.config"
     --mount "rw:${HOME}/.nuget/packages:/home/claude/.nuget/packages"
     --mount "ro:${HOME}/.dotfiles:/home/claude/.dotfiles"
-    # Phase C: sanitized gitconfig — credential helper sections stripped.
+    # Sanitized gitconfig — credential helper sections stripped.
     # The sandbox credential helper is injected via GIT_CONFIG_COUNT env vars.
-    --mount "ro:$PHASE_C_TMPDIR/gitconfig-sanitized:/home/claude/.gitconfig"
-    --mount "ro:$PHASE_C_TMPDIR/config-git:/home/claude/.config/git"
-    # Phase C: sandbox credential helper + git config overlay.
-    --mount "ro:$PHASE_C_TMPDIR/git-credential-sandbox.sh:/opt/sandbox/git-credential-sandbox.sh"
-    --mount "ro:$PHASE_C_TMPDIR/gitconfig.d/sandbox-credentials.inc:/opt/sandbox/sandbox-credentials.inc"
+    --mount "ro:$CRED_TMPDIR/gitconfig-sanitized:/home/claude/.gitconfig"
+    --mount "ro:$CRED_TMPDIR/config-git:/home/claude/.config/git"
+    # Sandbox credential helper + git config overlay.
+    --mount "ro:$CRED_TMPDIR/git-credential-sandbox.sh:/opt/sandbox/git-credential-sandbox.sh"
+    --mount "ro:$CRED_TMPDIR/gitconfig.d/sandbox-credentials.inc:/opt/sandbox/sandbox-credentials.inc"
     # Host scratch dir shared with the agent (settings.json hooks write here).
     --mount "rw:/tmp/claude:/tmp/claude"
 )
@@ -174,10 +174,10 @@ fi
 ENVS=(
     # [1] Prevents Node.js OOM on large sessions / big codebases.
     --env "NODE_OPTIONS=--max-old-space-size=4096"
-    # Phase C: NuGet gets the placeholder PAT. The real PAT is in the sidecar
+    # NuGet gets the placeholder PAT. The real PAT is in the sidecar
     # proxy, which swaps it in outbound requests to VSTS feeds.
     --env "NuGetPackageSourceCredentials_red_gate_vsts_main_v3=Username=username;Password=SANDBOX-PLACEHOLDER-NUGET-PAT"
-    # Phase C: Claude auth — use CLAUDE_CODE_OAUTH_TOKEN (not ANTHROPIC_API_KEY)
+    # Claude auth — use CLAUDE_CODE_OAUTH_TOKEN (not ANTHROPIC_API_KEY)
     # because Claude Code silently accepts CLAUDE_CODE_OAUTH_TOKEN, while
     # ANTHROPIC_API_KEY triggers an interactive "Detected a custom API key"
     # prompt. The sidecar proxy injects the real credential (API key via
@@ -186,13 +186,13 @@ ENVS=(
     # gh CLI reads the placeholder token from env (no config-dir writes).
     # Sidecar swaps it for the real PAT on outbound requests.
     --env "GH_TOKEN=SANDBOX-PLACEHOLDER-GH-TOKEN"
-    # Phase C: git config include for the sandbox credential helper.
+    # git config include for the sandbox credential helper.
     --env "GIT_CONFIG_COUNT=1"
     --env "GIT_CONFIG_KEY_0=include.path"
     --env "GIT_CONFIG_VALUE_0=/opt/sandbox/sandbox-credentials.inc"
 )
 
-# ---------- Phase C: Claude OAuth token → sidecar, not agent ----------
+# ---------- Claude OAuth token → sidecar, not agent ----------
 # If CLAUDE_DOCKER_OAUTH_TOKEN is set on the host, route it through the sidecar
 # proxy instead of passing the real token into the agent container. The agent
 # gets a placeholder; the sidecar injects the real Bearer token on outbound
@@ -203,7 +203,7 @@ ENVS=(
 CRED_MASK="$(mktemp)"
 cleanup() {
     rm -f "$CRED_MASK"
-    rm -rf "$PHASE_C_TMPDIR"
+    rm -rf "$CRED_TMPDIR"
 }
 trap cleanup EXIT
 

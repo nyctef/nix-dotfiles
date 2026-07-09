@@ -46,9 +46,9 @@ if [[ ! -d "$PI_DRV" ]]; then
     exit 1
 fi
 
-# ---------- Phase C: generate placeholder configs for credential injection ----------
+# ---------- generate placeholder configs for credential injection ----------
 
-PHASE_C_TMPDIR="$(mktemp -d)"
+CRED_TMPDIR="$(mktemp -d)"
 
 # GitHub CLI: the placeholder token is passed via the GH_TOKEN env var (see
 # ENVS below) rather than a synthetic hosts.yml. gh reads the token from env
@@ -57,7 +57,7 @@ PHASE_C_TMPDIR="$(mktemp -d)"
 # swaps the placeholder for the real PAT on outbound requests.
 
 # Git credential helper: returns placeholder tokens for the proxy to swap.
-cat > "$PHASE_C_TMPDIR/git-credential-sandbox.sh" <<'GCEOF'
+cat > "$CRED_TMPDIR/git-credential-sandbox.sh" <<'GCEOF'
 #!/bin/sh
 host=""
 while IFS='=' read -r key value; do
@@ -72,10 +72,10 @@ case "$host" in
         ;;
 esac
 GCEOF
-chmod +x "$PHASE_C_TMPDIR/git-credential-sandbox.sh"
+chmod +x "$CRED_TMPDIR/git-credential-sandbox.sh"
 
-mkdir -p "$PHASE_C_TMPDIR/gitconfig.d"
-cat > "$PHASE_C_TMPDIR/gitconfig.d/sandbox-credentials.inc" <<'GITEOF'
+mkdir -p "$CRED_TMPDIR/gitconfig.d"
+cat > "$CRED_TMPDIR/gitconfig.d/sandbox-credentials.inc" <<'GITEOF'
 [credential]
     helper = /opt/sandbox/git-credential-sandbox.sh
 GITEOF
@@ -91,13 +91,13 @@ text = re.sub(
     text
 )
 open(sys.argv[2], 'w').write(text)
-" "${HOME}/.gitconfig" "$PHASE_C_TMPDIR/gitconfig-sanitized"
+" "${HOME}/.gitconfig" "$CRED_TMPDIR/gitconfig-sanitized"
 else
-    touch "$PHASE_C_TMPDIR/gitconfig-sanitized"
+    touch "$CRED_TMPDIR/gitconfig-sanitized"
 fi
 
 # Sanitize ~/.config/git/config similarly.
-mkdir -p "$PHASE_C_TMPDIR/config-git"
+mkdir -p "$CRED_TMPDIR/config-git"
 if [[ -f "${HOME}/.config/git/config" ]]; then
     python3 -c "
 import re, sys
@@ -108,32 +108,32 @@ text = re.sub(
     text
 )
 open(sys.argv[2], 'w').write(text)
-" "${HOME}/.config/git/config" "$PHASE_C_TMPDIR/config-git/config"
+" "${HOME}/.config/git/config" "$CRED_TMPDIR/config-git/config"
 else
-    touch "$PHASE_C_TMPDIR/config-git/config"
+    touch "$CRED_TMPDIR/config-git/config"
 fi
 for f in "${HOME}/.config/git/"*; do
     fname="$(basename "$f")"
     [[ "$fname" == "config" ]] && continue
-    if [[ ! -e "$PHASE_C_TMPDIR/config-git/$fname" ]]; then
-        cp -a "$f" "$PHASE_C_TMPDIR/config-git/$fname" 2>/dev/null || true
+    if [[ ! -e "$CRED_TMPDIR/config-git/$fname" ]]; then
+        cp -a "$f" "$CRED_TMPDIR/config-git/$fname" 2>/dev/null || true
     fi
 done
 
 # NuGet config with placeholder PAT.
-mkdir -p "$PHASE_C_TMPDIR/nuget/config"
+mkdir -p "$CRED_TMPDIR/nuget/config"
 if [[ -f "${HOME}/.config/NuGet/NuGet.Config" ]]; then
-    cp "${HOME}/.config/NuGet/NuGet.Config" "$PHASE_C_TMPDIR/nuget/NuGet.Config"
+    cp "${HOME}/.config/NuGet/NuGet.Config" "$CRED_TMPDIR/nuget/NuGet.Config"
 fi
 if [[ -f "${HOME}/.config/NuGet/config/rg.config" ]]; then
-    cp "${HOME}/.config/NuGet/config/rg.config" "$PHASE_C_TMPDIR/nuget/config/rg.config"
+    cp "${HOME}/.config/NuGet/config/rg.config" "$CRED_TMPDIR/nuget/config/rg.config"
 fi
 
 # Sanitize pi config: copy auth.json with real API keys
 # replaced by placeholders. Pi needs these files to start, but the real keys
 # go through the sidecar proxy.
 PI_CONFIG_DIR="${PI_CODING_AGENT_DIR:-${HOME}/.pi/agent}"
-mkdir -p "$PHASE_C_TMPDIR/pi-config"
+mkdir -p "$CRED_TMPDIR/pi-config"
 
 # Extract pi's Anthropic API key from auth.json and export it so the core
 # launcher (run-agent-sandbox.sh) can pass it to the sidecar proxy. Pi stores
@@ -163,11 +163,11 @@ if [[ -d "$PI_CONFIG_DIR" ]]; then
     if [[ -f "$PI_CONFIG_DIR/auth.json" ]]; then
         # Replace any sk-ant-* key with the placeholder.
         sed 's/sk-ant-[A-Za-z0-9_-]*/SANDBOX-PLACEHOLDER-ANTHROPIC-KEY/g' \
-            "$PI_CONFIG_DIR/auth.json" > "$PHASE_C_TMPDIR/pi-config/auth.json"
+            "$PI_CONFIG_DIR/auth.json" > "$CRED_TMPDIR/pi-config/auth.json"
     fi
 fi
 
-cleanup_pi() { rm -rf "$PHASE_C_TMPDIR"; }
+cleanup_pi() { rm -rf "$CRED_TMPDIR"; }
 trap cleanup_pi EXIT
 
 # ---------- pi-specific bind mounts ----------
@@ -181,20 +181,20 @@ MOUNTS=(
     # The directory itself is mounted rw (pi writes sessions), but auth files
     # are masked with sanitized copies containing placeholder keys.
     --mount "rw:${PI_CONFIG_DIR}:/home/claude/.pi/agent"
-    # Phase C: mask auth.json with a sanitized copy (placeholder keys).
-    --mount "ro:$PHASE_C_TMPDIR/pi-config/auth.json:/home/claude/.pi/agent/auth.json"
+    # Mask auth.json with a sanitized copy (placeholder keys).
+    --mount "ro:$CRED_TMPDIR/pi-config/auth.json:/home/claude/.pi/agent/auth.json"
     # NuGet: host config structure preserved (proxy injects real PAT).
-    --mount "ro:$PHASE_C_TMPDIR/nuget/NuGet.Config:/home/claude/.config/NuGet/NuGet.Config"
-    --mount "ro:$PHASE_C_TMPDIR/nuget/config/rg.config:/home/claude/.config/NuGet/config/rg.config"
+    --mount "ro:$CRED_TMPDIR/nuget/NuGet.Config:/home/claude/.config/NuGet/NuGet.Config"
+    --mount "ro:$CRED_TMPDIR/nuget/config/rg.config:/home/claude/.config/NuGet/config/rg.config"
     --mount "rw:${HOME}/.nuget/packages:/home/claude/.nuget/packages"
     # Host dotfiles (for AGENTS.md, project instructions, etc.)
     --mount "ro:${HOME}/.dotfiles:/home/claude/.dotfiles"
-    # Phase C: sanitized gitconfig — credential helper sections stripped.
-    --mount "ro:$PHASE_C_TMPDIR/gitconfig-sanitized:/home/claude/.gitconfig"
-    --mount "ro:$PHASE_C_TMPDIR/config-git:/home/claude/.config/git"
-    # Phase C: sandbox credential helper + git config overlay.
-    --mount "ro:$PHASE_C_TMPDIR/git-credential-sandbox.sh:/opt/sandbox/git-credential-sandbox.sh"
-    --mount "ro:$PHASE_C_TMPDIR/gitconfig.d/sandbox-credentials.inc:/opt/sandbox/sandbox-credentials.inc"
+    # Sanitized gitconfig — credential helper sections stripped.
+    --mount "ro:$CRED_TMPDIR/gitconfig-sanitized:/home/claude/.gitconfig"
+    --mount "ro:$CRED_TMPDIR/config-git:/home/claude/.config/git"
+    # Sandbox credential helper + git config overlay.
+    --mount "ro:$CRED_TMPDIR/git-credential-sandbox.sh:/opt/sandbox/git-credential-sandbox.sh"
+    --mount "ro:$CRED_TMPDIR/gitconfig.d/sandbox-credentials.inc:/opt/sandbox/sandbox-credentials.inc"
 )
 
 # .dotfiles must also resolve at its host absolute path inside the container
@@ -210,24 +210,24 @@ ENVS=(
     --env "PI_CODING_AGENT_DIR=/home/claude/.pi/agent"
     # Node.js OOM guard (same as Claude wrapper — pi is also Node.js).
     --env "NODE_OPTIONS=--max-old-space-size=4096"
-    # Phase C: placeholder API keys. Real keys are in the sidecar proxy.
+    # Placeholder API keys. Real keys are in the sidecar proxy.
     --env "ANTHROPIC_API_KEY=SANDBOX-PLACEHOLDER-ANTHROPIC-KEY"
-    # Phase C: Brave Search API key placeholder for pi's web_search tool.
+    # Brave Search API key placeholder for pi's web_search tool.
     --env "BRAVE_SEARCH_API_KEY=SANDBOX-PLACEHOLDER-BRAVE-SEARCH-KEY"
-    # Phase C: NuGet gets the placeholder PAT. The real PAT is in the sidecar
+    # NuGet gets the placeholder PAT. The real PAT is in the sidecar
     # proxy, which swaps it in outbound requests to VSTS feeds.
     --env "NuGetPackageSourceCredentials_red_gate_vsts_main_v3=Username=username;Password=SANDBOX-PLACEHOLDER-NUGET-PAT"
     # gh CLI reads the placeholder token from env (no config-dir writes).
     # Sidecar swaps it for the real PAT on outbound requests.
     --env "GH_TOKEN=SANDBOX-PLACEHOLDER-GH-TOKEN"
-    # Phase C: git config include for the sandbox credential helper.
+    # git config include for the sandbox credential helper.
     --env "GIT_CONFIG_COUNT=1"
     --env "GIT_CONFIG_KEY_0=include.path"
     --env "GIT_CONFIG_VALUE_0=/opt/sandbox/sandbox-credentials.inc"
 )
 
-# Phase C: provider keys are injected via the sidecar proxy, not passed to
-# the agent. For providers not yet in the credential map, we still pass
+# Provider keys are injected via the sidecar proxy, not passed to the agent.
+# For providers not yet in the credential map, we still pass
 # placeholder values so the agent's SDK doesn't refuse to start.
 for var in OPENAI_API_KEY GOOGLE_API_KEY OPENROUTER_API_KEY; do
     if [[ -n "${!var:-}" ]]; then
