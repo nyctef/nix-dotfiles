@@ -1,5 +1,5 @@
 """
-mitmproxy addon: credential injection for the agent sandbox (Phase C).
+mitmproxy addon: credential injection for the agent sandbox.
 
 Runs in the sidecar proxy alongside egress-policy.py. Intercepts outbound
 requests from the agent container and injects real credentials, replacing

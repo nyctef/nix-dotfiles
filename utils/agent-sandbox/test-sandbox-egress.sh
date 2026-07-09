@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Test wrapper for the agent sandbox network stack (Phase B.1: sidecar proxy).
+# Test wrapper for the agent sandbox network stack.
 #
 # A sibling to run-claude-sandbox.sh — drives run-agent-sandbox.sh with a test
 # harness as the "agent command" instead of a real agent. Exercises:
@@ -37,12 +37,12 @@ done
 # container and run as the agent command. It runs as the claude user, which is
 # exactly the threat model we're testing.
 
-# Phase C: generate the same placeholder configs a real wrapper would.
-PHASE_C_TMPDIR="$(mktemp -d)"
-cleanup_test() { rm -rf "$PHASE_C_TMPDIR"; }
+# Generate the same placeholder configs a real wrapper would.
+CRED_TMPDIR="$(mktemp -d)"
+cleanup_test() { rm -rf "$CRED_TMPDIR"; }
 trap cleanup_test EXIT
 
-cat > "$PHASE_C_TMPDIR/git-credential-sandbox.sh" <<'GCEOF'
+cat > "$CRED_TMPDIR/git-credential-sandbox.sh" <<'GCEOF'
 #!/bin/sh
 host=""
 while IFS='=' read -r key value; do
@@ -57,10 +57,10 @@ case "$host" in
         ;;
 esac
 GCEOF
-chmod +x "$PHASE_C_TMPDIR/git-credential-sandbox.sh"
+chmod +x "$CRED_TMPDIR/git-credential-sandbox.sh"
 
-mkdir -p "$PHASE_C_TMPDIR/gitconfig.d"
-cat > "$PHASE_C_TMPDIR/gitconfig.d/sandbox-credentials.inc" <<'GITEOF'
+mkdir -p "$CRED_TMPDIR/gitconfig.d"
+cat > "$CRED_TMPDIR/gitconfig.d/sandbox-credentials.inc" <<'GITEOF'
 [credential]
     helper = /opt/sandbox/git-credential-sandbox.sh
 GITEOF
@@ -68,8 +68,8 @@ GITEOF
 exec "$HERE/run-agent-sandbox.sh" \
     --agent-cmd "bash /opt/egress-test-harness.sh" \
     --mount "ro:$HERE/egress-test-harness.sh:/opt/egress-test-harness.sh" \
-    --mount "ro:$PHASE_C_TMPDIR/git-credential-sandbox.sh:/opt/sandbox/git-credential-sandbox.sh" \
-    --mount "ro:$PHASE_C_TMPDIR/gitconfig.d/sandbox-credentials.inc:/opt/sandbox/sandbox-credentials.inc" \
+    --mount "ro:$CRED_TMPDIR/git-credential-sandbox.sh:/opt/sandbox/git-credential-sandbox.sh" \
+    --mount "ro:$CRED_TMPDIR/gitconfig.d/sandbox-credentials.inc:/opt/sandbox/sandbox-credentials.inc" \
     --env "SKIP_DOCKER_TESTS=${SKIP_DOCKER:-}" \
     --env "CLAUDE_CODE_OAUTH_TOKEN=SANDBOX-PLACEHOLDER-CLAUDE-OAUTH" \
     --env "GH_TOKEN=SANDBOX-PLACEHOLDER-GH-TOKEN" \

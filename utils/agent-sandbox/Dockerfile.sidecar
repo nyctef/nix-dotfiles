@@ -1,4 +1,4 @@
-# Sidecar proxy for the agent sandbox (Phase B.1).
+# Sidecar proxy for the agent sandbox.
 #
 # Runs mitmproxy as a forward (explicit) proxy on an --internal Docker network.
 # The agent container routes HTTP(S) through this proxy via HTTP_PROXY env vars.

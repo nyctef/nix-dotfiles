@@ -1,18 +1,16 @@
-# Agent image for the sysbox-based sandbox (Phase B.1: sidecar proxy).
+# Agent image for the sysbox-based sandbox.
 #
-# KEY DIFFERENCE from the old run-claude-docker image: this image installs the
-# full Docker *daemon* (docker-ce + containerd), not just the CLI. There is NO
-# host Docker socket mount. The container runs under `--runtime=sysbox-runc`,
-# so dockerd runs unprivileged-but-functional INSIDE the container via user
-# namespaces. `dotnet test -> docker run -p 5432:5432` then works with native
-# localhost/bind-mount ergonomics, and the test containers are nested children
-# of the agent container, not host siblings.
+# This image installs the full Docker *daemon* (docker-ce + containerd), not
+# just the CLI. There is NO host Docker socket mount. The container runs under
+# `--runtime=sysbox-runc`, so dockerd runs unprivileged-but-functional INSIDE
+# the container via user namespaces. `dotnet test -> docker run -p 5432:5432`
+# then works with native localhost/bind-mount ergonomics, and the test
+# containers are nested children of the agent container, not host siblings.
 #
-# Phase B.1: egress enforcement moved to a sidecar proxy container. This image
-# no longer contains mitmproxy, iptables rules, or the egress policy — those
-# live in the sidecar (Dockerfile.sidecar). The agent container receives the
-# proxy CA from a shared Docker volume and routes all traffic through the
-# sidecar via a default route added at startup.
+# Egress enforcement lives in a sidecar proxy container (Dockerfile.sidecar):
+# this image contains no mitmproxy, iptables rules, or egress policy. The agent
+# container receives the proxy CA from a shared Docker volume and routes all
+# traffic through the sidecar via a default route added at startup.
 
 FROM ubuntu:24.04
 
@@ -21,7 +19,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Trust anchor for the HTTPS third-party repos added below.
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 
-# Docker repo (daemon + CLI this time).
+# Docker repo (daemon + CLI).
 ADD --chmod=0644 https://download.docker.com/linux/ubuntu/gpg /etc/apt/keyrings/docker.asc
 RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
       https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
@@ -40,13 +38,10 @@ RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/mic
       https://packages.microsoft.com/ubuntu/24.04/prod $(. /etc/os-release && echo "$VERSION_CODENAME") main" \
       > /etc/apt/sources.list.d/microsoft-prod.list
 
-# One big install. NOTE vs Phase B:
-#   - python3-pip, mitmproxy   -> moved to sidecar
-#   - egressproxy user         -> moved to sidecar
-#   - iptables                 -> no longer needed for egress (sidecar enforces)
-#   + iproute2                 -> needed for `ip route add` to sidecar gateway
-# apt lists are intentionally left in place so the agent can install extras at
-# runtime without a re-fetch.
+# One big install. Egress tooling (python3-pip, mitmproxy, the egressproxy
+# user, iptables) lives in the sidecar, not here. iproute2 is needed for
+# `ip route add` to the sidecar gateway. apt lists are intentionally left in
+# place so the agent can install extras at runtime without a re-fetch.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         ca-certificates \

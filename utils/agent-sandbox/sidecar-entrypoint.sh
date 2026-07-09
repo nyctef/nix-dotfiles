@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Sidecar proxy entrypoint (Phase B.1).
+# Sidecar proxy entrypoint.
 #
 # Runs mitmproxy as a forward (explicit) proxy. The agent container uses
 # HTTP_PROXY / HTTPS_PROXY env vars to route traffic here. The Docker
