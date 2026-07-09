@@ -177,11 +177,14 @@ trick) — we don't refactor the old script to share code yet.
   (`gh auth token`, `ANTHROPIC_API_KEY`, `CLAUDE_DOCKER_OAUTH_TOKEN`, NuGet
   PAT) and passes them to the sidecar via `-e SANDBOX_CRED_*`. Agent container
   never sees them.
-- **Placeholder configs** (agent wrappers): synthetic `~/.config/gh/hosts.yml`,
-  git credential helper (`/opt/sandbox/git-credential-sandbox.sh`), and git
-  config overlay that returns placeholder tokens. NuGet and Anthropic env vars
-  set to placeholder values. Host gitconfig credential helper sections stripped
-  via regex.
+- **Placeholder configs** (agent wrappers): the `gh` CLI placeholder token is
+  passed via the `GH_TOKEN` env var (not a `~/.config/gh/hosts.yml` mount — gh
+  tries to rewrite that file for a config-format migration, which fails against
+  a read-only mount and breaks `gh auth status`; reading from env sidesteps it).
+  Plus a git credential helper (`/opt/sandbox/git-credential-sandbox.sh`) and
+  git config overlay that return placeholder tokens. NuGet and Anthropic env
+  vars set to placeholder values. Host gitconfig credential helper sections
+  stripped via regex.
 - **Real credential mounts removed**: `~/.config/gh` (real), NuGet env var
   (real PAT), `ANTHROPIC_API_KEY` (real), `.credentials.json` (masked with
   empty file) no longer reach the agent container.
@@ -201,7 +204,7 @@ trick) — we don't refactor the old script to share code yet.
   doesn't inject real values yet. Extend `credential-map.yaml` and
   `cred-inject.py` when needed.
 
-### Phase D — GitHub write-scoping (mitigate injection blast radius)  🟡 code complete, e2e pending
+### Phase D — GitHub write-scoping (mitigate injection blast radius)  ✅ proven end to end
 GitHub is a large surface for both prompt injection (read) and exfiltration
 (write). We can't drop GitHub access without losing most of the agent's value,
 so instead of preventing injection we **bound what a hijacked agent can do**:
@@ -303,7 +306,7 @@ allowlist are in a separate container namespace and are unreachable.
 
 ---
 
-## Current status: Phase A/B/B.1/C proven; Phase D (GitHub write-scoping) code-complete, e2e pending on the sysbox host
+## Current status: Phase A/B/B.1/C/D all proven end to end on the sysbox host
 
 All phases validated end to end on `tachikoma` (NixOS 26.05, WSL2).
 
@@ -323,6 +326,10 @@ All phases validated end to end on `tachikoma` (NixOS 26.05, WSL2).
   (API + git HTTPS), Anthropic (x-api-key + Bearer), NuGet (basic auth)
   all injected by `cred-inject.py`. `.credentials.json` masked.
   Host gitconfig credential helpers stripped.
+- ✅ Phase D proven end to end: GitHub write-scoping via sidecar. Foreign read
+  + `git ls-remote` allowed; opening an issue in `nyctef/nix-dotfiles`, gist
+  creation, and GraphQL mutations all 403'd; GraphQL query allowed. Full
+  `test-sandbox-egress.sh` run: 56 pass, 0 fail, 1 skip.
 - ✅ `sudo apt-get` works through sidecar proxy (persistent apt proxy config).
 - ✅ No real credentials leak into the agent container (verified from inside
   a live sandbox session).
