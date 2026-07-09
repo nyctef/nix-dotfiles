@@ -165,6 +165,13 @@ class GitHubPolicy:
         # No documented write operation matched — fail closed.
         return DENY, f"REST {method} {path}: unknown write endpoint (default-deny)"
 
+    # NOTE: GraphQL mutations are denied wholesale by design. They carry opaque
+    # node IDs (subjectId/repositoryId/…), not owner logins, so they can't be
+    # cheaply owner-scoped without resolving IDs against the API. Consequence:
+    # gh CLI write porcelain that uses GraphQL (gh issue/pr comment, gh issue
+    # create, close/reopen/merge/review, …) is blocked in-sandbox even for
+    # allowed owners. Use the REST escape hatch (gh api repos/{o}/{r}/... which
+    # IS owner-scoped) or run those workflows outside the sandbox.
     def _classify_graphql(self, body_text: str) -> tuple[str, str]:
         if not body_text:
             return DENY, "graphql: empty body (default-deny)"

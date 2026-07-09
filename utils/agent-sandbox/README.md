@@ -233,6 +233,17 @@ so instead of preventing injection we **bound what a hijacked agent can do**:
   owner-scoped (mutations carry opaque node IDs, not owner logins) so they are
   denied wholesale rather than filtered; and reads remain fully open. This is a
   blast-radius control, not a wall.
+- **Known consequence for `gh` (intended, not a bug):** the `gh` CLI routes
+  many write commands through GraphQL mutations, not REST — verified for
+  `gh issue create` (`createIssue`), `gh issue comment` / `gh pr comment`
+  (`addComment` / `updateIssueComment` / `deleteIssueComment`), and the pattern
+  holds for issue/PR close/reopen/merge/review/edit. There is no flag to make
+  those commands use REST. **So they will be blocked in-sandbox even against
+  red-gate.** Two escape routes: (1) the REST equivalent still works and is
+  owner-scoped — e.g. `gh api repos/{owner}/{repo}/issues/N/comments -f body=…`;
+  (2) run genuinely mutation-driven workflows (e.g. spec-driven work on GitHub
+  issues) *outside* the sandbox. We accept this trade-off rather than build
+  node-ID→owner resolution in the proxy.
 - **Tests:** `github-policy/test-github-policy.py` unit-tests the pure
   classifier offline (no mitmproxy needed); `egress-test-harness.sh` §16 drives
   the live sidecar (foreign read allowed, `git ls-remote` allowed, opening an
