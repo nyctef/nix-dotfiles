@@ -22,6 +22,21 @@ s3.amazonaws.com
 maven.pkg.github.com
 maven-central.storage-download.googleapis.com
 red-gate.pkgs.visualstudio.com
+# Azure DevOps Artifacts serves .nupkg *content* via a 302/303 redirect from the
+# feed host to a regional Azure blob-storage account carrying a read-only SAS
+# (e.g. m8vvsblobprodsu6weus76.blob.core.windows.net). Without this, the versions
+# index resolves on the feed host but the nupkg download 403s at our own egress
+# policy on the redirect target.
+#
+# The account name rotates by region but always carries the "vsblobprod" marker
+# used by Azure DevOps package storage, so we scope to that rather than opening
+# all of *.blob.core.windows.net (which is attacker-registrable — anyone can
+# create an Azure storage account). NOTE: this is a blast-radius speed bump, not
+# a wall — storage-account names are only globally unique, not substring-reserved,
+# so a targeted attacker could register a "vsblobprod"-containing name. It blocks
+# opportunistic exfil to arbitrary blob storage, consistent with the Phase D
+# "control, not a wall" framing. (Glob entry — needs the '*' matcher below.)
+*vsblobprod*.blob.core.windows.net
 pypi.org
 files.pythonhosted.org
 
