@@ -28,6 +28,7 @@ Unlike the old single-file script, the pieces are split into separate files:
 | `sidecar-entrypoint.sh` | in-sidecar: starts mitmproxy in forward mode, signals ready  |
 | `firewall-domains.txt`  | hostname allowlist — single source of truth for L7 egress policy        |
 | `egress-policy.py`      | mitmproxy addon — enforces hostname allowlist (SNI + Host), anti-fronting |
+| `github-policy.py`      | mitmproxy addon — GitHub read-only enforcement (reads open; all writes blocked except git fetch/upload-pack) |
 | `cred-inject.py`        | mitmproxy addon — credential injection (placeholder → real swap) |
 | `credential-map.yaml`   | domain→service→env-var mapping for credential injection |
 | `entrypoint.sh`         | in-agent: install CA, configure proxy env, start inner dockerd, run agent |
@@ -201,6 +202,39 @@ trick) — we don't refactor the old script to share code yet.
   doesn't inject real values yet. Extend `credential-map.yaml` and
   `cred-inject.py` when needed.
 
+### Phase D — GitHub read-only (mitigate injection blast radius)
+GitHub is a large surface for both prompt injection (read) and exfiltration
+(write). We can't drop GitHub access without losing most of the agent's value,
+so instead of preventing injection we **bound what a hijacked agent can do** by
+making GitHub read-only in-sandbox:
+
+- **Reads stay open.** GET/HEAD to any GitHub host is allowed. Reads are the
+  injection vector, but exfil *via* read is weak (an attacker can't see
+  GitHub's access logs), so locking reads down would cost ergonomics for little
+  gain.
+- **All writes are blocked.** Anything that isn't a plain read — every
+  `POST/PUT/PATCH/DELETE`, `git push` (receive-pack), and every GraphQL POST —
+  is 403'd. The one exception is git's fetch/clone path: `POST .../git-upload-pack`
+  is how smart-HTTP serves a clone/fetch, so it's a read and is allowed.
+- **Enforcement point:** `github-policy.py` runs in the sidecar between
+  `egress-policy.py` and `cred-inject.py`. A blocked write is 403'd *before*
+  `cred-inject.py` runs, and `cred-inject.py` also early-returns on an
+  already-set response — so a denied request never has a real credential minted
+  onto it (fail-closed, belt and suspenders).
+- **Known consequence (intended, not a bug):** GraphQL is always a POST, so
+  GraphQL *read* queries are blocked too. The `gh` CLI routes many commands
+  (both reads and writes) through GraphQL, so those fail in-sandbox. Use the
+  REST equivalent where one exists (a plain GET, or `gh api -X GET …`), or run
+  those workflows *outside* the sandbox. This coarseness is the point of the
+  simplification — a finer owner-scoped write policy lives on the
+  `github-write-scoping` branch if we want to revisit it.
+- **Residual risk (documented, not eliminated):** reads remain fully open, so
+  read-side exfil is still possible. This is a blast-radius control, not a wall.
+- **Tests:** `egress-test-harness.sh` §16 drives the live sidecar (repo read
+  allowed, `git ls-remote` allowed, opening an issue blocked, gist blocked,
+  GraphQL POST blocked). The write-blocked assertions fail loudly on any 2xx, so
+  a policy regression can't masquerade as a pass.
+
 ### Cross-cutting / carry over from the old script
 - Worktree mode, host-absolute-path mounts, Nix symlink resolution, Ctrl-Z
   rcfile trick, build-arg version pinning — copied into the launcher (extracted
@@ -253,9 +287,10 @@ allowlist are in a separate container namespace and are unreachable.
 
 ---
 
-## Current status: Phase A proven, Phase B proven, Phase B.1 proven, Phase C proven
+## Current status: Phase A/B/B.1/C proven end to end; D simplified (re-verify pending)
 
-All phases validated end to end on `tachikoma` (NixOS 26.05, WSL2).
+Phases A–C validated end to end on `tachikoma` (NixOS 26.05, WSL2). Phase D was
+simplified from owner-scoped writes to GitHub read-only and needs a fresh e2e run.
 
 - ✅ Inner dockerd starts under sysbox-runc
 - ✅ `docker run hello-world` works nested inside the agent container
@@ -273,6 +308,12 @@ All phases validated end to end on `tachikoma` (NixOS 26.05, WSL2).
   (API + git HTTPS), Anthropic (x-api-key + Bearer), NuGet (basic auth)
   all injected by `cred-inject.py`. `.credentials.json` masked.
   Host gitconfig credential helpers stripped.
+- Phase D simplified to GitHub read-only (reads open; all writes blocked except
+  git fetch/upload-pack). The earlier owner-scoped write policy — which had been
+  proven end to end — is preserved on the `github-write-scoping` branch. The
+  simplified policy still needs a fresh end-to-end run on the sysbox host
+  (`egress-test-harness.sh` §16: repo read + `git ls-remote` allowed; issue,
+  gist, and GraphQL POST all 403'd).
 - ✅ `sudo apt-get` works through sidecar proxy (persistent apt proxy config).
 - ✅ No real credentials leak into the agent container (verified from inside
   a live sandbox session).
