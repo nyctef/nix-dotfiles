@@ -132,30 +132,13 @@ fi
 # Sanitize pi config: copy auth.json with real API keys
 # replaced by placeholders. Pi needs these files to start, but the real keys
 # go through the sidecar proxy.
+#
+# The real Anthropic key is NOT extracted here — the core launcher
+# (run-agent-sandbox.sh) reads it directly from the agenix-decrypted secret
+# (secrets/claude-api-token.age) and hands it to the sidecar. The agent
+# container only ever sees the placeholder below.
 PI_CONFIG_DIR="${PI_CODING_AGENT_DIR:-${HOME}/.pi/agent}"
 mkdir -p "$CRED_TMPDIR/pi-config"
-
-# Extract pi's Anthropic API key from auth.json and export it so the core
-# launcher (run-agent-sandbox.sh) can pass it to the sidecar proxy. Pi stores
-# its own API key here (separate billing from Claude Code's OAuth subscription).
-# The env var is only used by the core's sidecar credential resolution — the
-# agent container gets the placeholder, not the real key.
-if [[ -z "${ANTHROPIC_API_KEY:-}" && -f "$PI_CONFIG_DIR/auth.json" ]]; then
-    _PI_API_KEY="$(python3 -c "
-import json, sys
-try:
-    data = json.load(open(sys.argv[1]))
-    key = data.get('anthropic', {}).get('key', '')
-    if key and not key.startswith('SANDBOX-PLACEHOLDER'):
-        print(key)
-except Exception:
-    pass
-" "$PI_CONFIG_DIR/auth.json" 2>/dev/null)" || true
-    if [[ -n "${_PI_API_KEY:-}" ]]; then
-        export ANTHROPIC_API_KEY="$_PI_API_KEY"
-    fi
-    unset _PI_API_KEY
-fi
 
 # Copy the full pi config dir structure (sessions, etc.) but sanitize auth files.
 if [[ -d "$PI_CONFIG_DIR" ]]; then

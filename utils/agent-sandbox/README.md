@@ -172,9 +172,10 @@ trick) — we don't refactor the old script to share code yet.
   Mode-aware placeholder stripping (skips `Authorization` header values for
   `header` mode services).
 - **Launcher plumbing** (`run-agent-sandbox.sh`): reads host credentials
-  (`gh auth token`, `ANTHROPIC_API_KEY`, `CLAUDE_DOCKER_OAUTH_TOKEN`, NuGet
-  PAT) and passes them to the sidecar via `-e SANDBOX_CRED_*`. Agent container
-  never sees them.
+  (`gh auth token`, the Anthropic API token from the agenix secret file
+  `$XDG_RUNTIME_DIR/agenix/claude-api-token`, `CLAUDE_DOCKER_OAUTH_TOKEN`,
+  NuGet PAT) and passes them to the sidecar via `-e SANDBOX_CRED_*`. Agent
+  container never sees them.
 - **Placeholder configs** (agent wrappers): the `gh` CLI placeholder token is
   passed via the `GH_TOKEN` env var (not a `~/.config/gh/hosts.yml` mount — gh
   tries to rewrite that file for a config-format migration, which fails against
@@ -189,10 +190,13 @@ trick) — we don't refactor the old script to share code yet.
 - **Claude auth**: uses `CLAUDE_CODE_OAUTH_TOKEN` (not `ANTHROPIC_API_KEY`) to
   avoid Claude Code's interactive "Detected a custom API key" prompt. The
   sidecar injects the real Bearer token on outbound API requests.
-- **Pi wrapper** (`run-pi-sandbox.sh`): extracts API key from pi's
-  `auth.json`, sanitises config files (`settings.json`, `auth.json`) with
-  placeholder keys, exports `ANTHROPIC_API_KEY` for sidecar credential
-  resolution.
+- **Pi wrapper** (`run-pi-sandbox.sh`): sanitises config files
+  (`settings.json`, `auth.json`) with placeholder keys before mounting. The
+  real Anthropic key is not read here — the core launcher reads it from the
+  agenix secret directly. On the host, pi's `auth.json` is rendered from that
+  same secret (the bare token) by a home-manager activation script (see
+  `users/pi/default.nix`), so the token never enters the shell environment
+  where Claude Code would pick it up.
 - git over HTTPS with token injection via credential helper → proxy swap.
   SSH (port 22) stays default-denied unless explicitly allowed.
 - Docker registry auth (private images) deferred — requires intercepting the

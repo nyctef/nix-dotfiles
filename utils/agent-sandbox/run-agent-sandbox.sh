@@ -266,13 +266,19 @@ if [[ -n "$_NUGET_PAT" ]]; then
 fi
 unset _NUGET_PAT _NUGET_RAW _NUGET_SECRET
 
-# Anthropic API key.
-_ANTHROPIC_KEY="${ANTHROPIC_API_KEY:-}"
-if [[ -n "$_ANTHROPIC_KEY" ]]; then
+# Anthropic API key: read directly from the agenix-decrypted secret file
+# (secrets/claude-api-token.age → $XDG_RUNTIME_DIR/agenix/claude-api-token,
+# a bare token), same as the TeamCity/Brave tokens below. Reading the secret
+# directly avoids depending on an ANTHROPIC_API_KEY env var in the launching
+# shell (which the pi wrapper used to extract from auth.json).
+_ANTHROPIC_SECRET="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/agenix/claude-api-token"
+if [[ -r "$_ANTHROPIC_SECRET" ]]; then
+    _ANTHROPIC_KEY="$(cat "$_ANTHROPIC_SECRET")"
     SIDECAR_CRED_ENV+=(-e "SANDBOX_CRED_ANTHROPIC_KEY=$_ANTHROPIC_KEY")
     echo "  Credential: Anthropic API key → sidecar (placeholder to agent)"
+    unset _ANTHROPIC_KEY
 fi
-unset _ANTHROPIC_KEY
+unset _ANTHROPIC_SECRET
 
 # Claude Code OAuth token (Bearer auth for api.anthropic.com).
 _CLAUDE_OAUTH="${CLAUDE_DOCKER_OAUTH_TOKEN:-}"
