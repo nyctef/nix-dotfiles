@@ -82,3 +82,5 @@ dotnet.microsoft.com
 dot.net
 download.visualstudio.microsoft.com
 aka.ms
+mcr.microsoft.com
+*.data.mcr.microsoft.com
