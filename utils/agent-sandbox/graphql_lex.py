@@ -35,17 +35,15 @@ class LexError(Exception):
 
 # ── Tokeniser ─────────────────────────────────────────────────────────────────
 
-_PUNCT_CHARS = frozenset('!$&():=@[]{}|')
-
-
 def _tokenize(text: str) -> Iterator[str]:
     """
-    Lazily lex *text*, yielding one token at a time.
+    Lazily lex *text*, yielding only the tokens contains_mutation needs:
+    '{', '}', and the name 'mutation'.  Everything else is consumed silently.
 
-    Yielded: names/keywords and punctuators.
-    Silently consumed: string literals (regular + block), line comments,
-    number literals, whitespace, commas, Unicode BOM.
-    Raises LexError on invalid characters, unterminated strings, bad numbers.
+    String literals and block strings are consumed as a unit so their
+    content cannot contribute '{', '}', or 'mutation' to the stream.
+    Raises LexError on unterminated strings (the one case where incorrect
+    boundary detection would let content escape into the token stream).
     """
     i = 0
     n = len(text)
@@ -53,17 +51,9 @@ def _tokenize(text: str) -> Iterator[str]:
     while i < n:
         c = text[i]
 
-        # Insignificant: whitespace, BOM, comma
-        if c in ' \t\n\r\x0c\x0b,\ufeff':
-            i += 1
-
-        # Line comment
-        elif c == '#':
-            while i < n and text[i] not in '\n\r':
-                i += 1
-
         # Block string  """…"""  (escape inside: \""")
-        elif text[i:i + 3] == '"""':
+        # Must be checked before the single-" branch.
+        if text[i:i + 3] == '"""':
             i += 3
             while True:
                 if i >= n:
@@ -82,58 +72,41 @@ def _tokenize(text: str) -> Iterator[str]:
             while True:
                 if i >= n:
                     raise LexError("unterminated string literal (reached end of input)")
-                ch = text[i]
-                if ch in '\n\r':
+                if text[i] in '\n\r':
                     raise LexError("unterminated string literal (newline inside string)")
-                if ch == '\\':
+                if text[i] == '\\':
                     i += 2
-                elif ch == '"':
+                elif text[i] == '"':
                     i += 1
                     break
                 else:
                     i += 1
 
-        # Spread  ...
-        elif c == '.':
-            if text[i:i + 3] != '...':
-                raise LexError(f"unexpected '.' at offset {i}: only '...' is valid")
-            yield '...'
-            i += 3
+        # Line comment
+        elif c == '#':
+            while i < n and text[i] not in '\n\r':
+                i += 1
 
-        # Single-character punctuators
-        elif c in _PUNCT_CHARS:
-            yield c
+        # The two tokens used for depth tracking
+        elif c == '{':
+            yield '{'
+            i += 1
+        elif c == '}':
+            yield '}'
             i += 1
 
-        # Names
+        # Names — only yield 'mutation'; consume all others
         elif c.isalpha() or c == '_':
             j = i + 1
             while j < n and (text[j].isalnum() or text[j] == '_'):
                 j += 1
-            yield text[i:j]
+            if text[i:j] == 'mutation':
+                yield 'mutation'
             i = j
 
-        # Numbers (consumed, not yielded)
-        elif c.isdigit() or (c == '-' and i + 1 < n and text[i + 1].isdigit()):
-            if c == '-':
-                i += 1
-            while i < n and text[i].isdigit():
-                i += 1
-            if i < n and text[i] == '.' and i + 1 < n and text[i + 1].isdigit():
-                i += 1
-                while i < n and text[i].isdigit():
-                    i += 1
-            if i < n and text[i] in 'eE':
-                i += 1
-                if i < n and text[i] in '+-':
-                    i += 1
-                if i >= n or not text[i].isdigit():
-                    raise LexError("invalid number: expected digit after exponent")
-                while i < n and text[i].isdigit():
-                    i += 1
-
+        # Everything else (whitespace, punctuation, numbers, …): skip
         else:
-            raise LexError(f"unexpected character {c!r} at offset {i}")
+            i += 1
 
 
 # ── Classifier ────────────────────────────────────────────────────────────────

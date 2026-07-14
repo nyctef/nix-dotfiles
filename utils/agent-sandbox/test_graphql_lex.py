@@ -10,119 +10,66 @@ from graphql_lex import LexError, _tokenize, contains_mutation
 
 
 # ── Tokeniser tests ───────────────────────────────────────────────────────────
+# _tokenize only yields '{', '}', and the name 'mutation'.
+# Everything else (other names, punctuators, numbers) is consumed silently.
+# Unterminated strings raise LexError; everything else is skipped.
 
 class TestTokenize(unittest.TestCase):
 
-    # ── Basics ────────────────────────────────────────────────────────────────
+    # ── What IS yielded ───────────────────────────────────────────────────────
+
+    def test_braces_yielded(self):
+        self.assertEqual(list(_tokenize("{}")), ["{", "}"])
+
+    def test_mutation_name_yielded(self):
+        self.assertEqual(list(_tokenize("mutation")), ["mutation"])
+
+    def test_mutation_among_other_names(self):
+        # Other names are consumed but not yielded
+        self.assertEqual(list(_tokenize("query mutation fragment")), ["mutation"])
+
+    def test_realistic_mutation(self):
+        result = list(_tokenize("mutation { createFoo { id } }"))
+        self.assertEqual(result, ["mutation", "{", "{", "}", "}"])
+
+    def test_realistic_query(self):
+        # No 'mutation' token — only braces
+        result = list(_tokenize("query { viewer { login } }"))
+        self.assertEqual(result, ["{", "{", "}", "}"])
+
+    # ── What is NOT yielded ───────────────────────────────────────────────────
 
     def test_empty_string(self):
         self.assertEqual(list(_tokenize("")), [])
 
-    def test_whitespace_only(self):
+    def test_whitespace(self):
         self.assertEqual(list(_tokenize("   \t\n\r  ")), [])
 
-    def test_comma_is_insignificant(self):
-        # commas are whitespace in GraphQL
-        self.assertEqual(list(_tokenize("a,b,c")), ["a", "b", "c"])
+    def test_other_names_not_yielded(self):
+        self.assertEqual(list(_tokenize("query viewer subscription fragment")), [])
 
-    def test_unicode_bom_ignored(self):
-        self.assertEqual(list(_tokenize("\ufeffquery")), ["query"])
+    def test_punctuators_not_yielded(self):
+        self.assertEqual(list(_tokenize("( ) [ ] @ ! $ & | : = ...")), [])
 
-    # ── Names ─────────────────────────────────────────────────────────────────
+    def test_numbers_not_yielded(self):
+        self.assertEqual(list(_tokenize("42 3.14 -7 1e10")), [])
 
-    def test_single_name(self):
-        self.assertEqual(list(_tokenize("viewer")), ["viewer"])
+    # ── String literals — content must not escape ─────────────────────────────
 
-    def test_multiple_names(self):
-        self.assertEqual(list(_tokenize("query mutation fragment")), ["query", "mutation", "fragment"])
-
-    def test_name_with_underscore(self):
-        self.assertEqual(list(_tokenize("__typename")), ["__typename"])
-
-    def test_name_with_digits(self):
-        self.assertEqual(list(_tokenize("field2")), ["field2"])
-
-    def test_keywords_are_names(self):
-        # All keywords are valid names in GraphQL
-        for kw in ("query", "mutation", "subscription", "fragment", "on",
-                   "true", "false", "null"):
-            self.assertIn(kw, list(_tokenize(kw)))
-
-    # ── Punctuators ───────────────────────────────────────────────────────────
-
-    def test_braces(self):
-        self.assertEqual(list(_tokenize("{}")), ["{", "}"])
-
-    def test_parens(self):
-        self.assertEqual(list(_tokenize("()")), ["(", ")"])
-
-    def test_brackets(self):
-        self.assertEqual(list(_tokenize("[]")), ["[", "]"])
-
-    def test_single_char_punctuators(self):
-        self.assertEqual(
-            list(_tokenize("! $ & : = @ | ")),
-            ["!", "$", "&", ":", "=", "@", "|"],
-        )
-
-    def test_spread_operator(self):
-        self.assertEqual(list(_tokenize("...")), ["..."])
-
-    def test_spread_inside_selection(self):
-        self.assertEqual(
-            list(_tokenize("{ ...F }")),
-            ["{", "...", "F", "}"],
-        )
-
-    # ── Comments ──────────────────────────────────────────────────────────────
-
-    def test_comment_entirely_stripped(self):
-        self.assertEqual(list(_tokenize("# this is a comment")), [])
-
-    def test_comment_before_token(self):
-        self.assertEqual(list(_tokenize("# comment\nquery")), ["query"])
-
-    def test_comment_after_token(self):
-        self.assertEqual(list(_tokenize("query # comment")), ["query"])
-
-    def test_comment_containing_mutation_keyword(self):
-        # 'mutation' inside a comment must not be detected
-        self.assertEqual(list(_tokenize("# mutation\nquery")), ["query"])
-
-    def test_comment_does_not_absorb_next_line(self):
-        result = list(_tokenize("# line1\nfoo\n# line2\nbar"))
-        self.assertEqual(result, ["foo", "bar"])
-
-    # ── String literals (regular) ─────────────────────────────────────────────
-
-    def test_empty_string_literal(self):
-        self.assertEqual(list(_tokenize('""')), [])
-
-    def test_string_literal_stripped(self):
-        self.assertEqual(list(_tokenize('"hello world"')), [])
-
-    def test_string_containing_mutation_keyword(self):
+    def test_string_containing_mutation(self):
         self.assertEqual(list(_tokenize('"mutation"')), [])
 
-    def test_string_with_escaped_quote(self):
-        self.assertEqual(list(_tokenize(r'"say \"hello\""')), [])
+    def test_string_containing_braces(self):
+        self.assertEqual(list(_tokenize('"{  }"')), [])
 
-    def test_string_with_escaped_backslash(self):
-        self.assertEqual(list(_tokenize(r'"path\\file"')), [])
-
-    def test_string_with_escaped_unicode(self):
-        self.assertEqual(list(_tokenize(r'"\u0041"')), [])
-
-    def test_string_adjacent_to_name(self):
-        # Names on either side of a string are still yielded
-        self.assertEqual(list(_tokenize('foo "ignored" bar')), ["foo", "bar"])
+    def test_string_with_escape(self):
+        self.assertEqual(list(_tokenize(r'"say \"mutation\""')), [])
 
     def test_unterminated_string_eof(self):
         with self.assertRaises(LexError):
             list(_tokenize('"unclosed'))
 
     def test_unterminated_string_newline(self):
-        # Raw newline inside a regular string is illegal
         with self.assertRaises(LexError):
             list(_tokenize('"unclosed\n"'))
 
@@ -130,29 +77,18 @@ class TestTokenize(unittest.TestCase):
         with self.assertRaises(LexError):
             list(_tokenize('"unclosed\r"'))
 
-    # ── Block string literals ─────────────────────────────────────────────────
+    # ── Block string literals — content must not escape ───────────────────────
 
-    def test_empty_block_string(self):
-        self.assertEqual(list(_tokenize('""""""')), [])
-
-    def test_block_string_simple(self):
-        self.assertEqual(list(_tokenize('"""hello"""')), [])
-
-    def test_block_string_multiline(self):
-        self.assertEqual(list(_tokenize('"""line1\nline2\nline3"""')), [])
-
-    def test_block_string_containing_mutation_keyword(self):
+    def test_block_string_containing_mutation(self):
         self.assertEqual(list(_tokenize('"""mutation"""')), [])
 
-    def test_block_string_containing_double_quote(self):
-        self.assertEqual(list(_tokenize('"""say "hi" please"""')), [])
+    def test_block_string_containing_braces(self):
+        self.assertEqual(list(_tokenize('"""{ mutation }"""')), [])
 
     def test_block_string_escaped_triple_quote(self):
-        # \""" inside a block string is the escape for a literal """
+        # \""" is the escape for """ inside a block string; the block must
+        # not be closed early, letting content escape into the token stream.
         self.assertEqual(list(_tokenize('"""has \\"""escaped"""')), [])
-
-    def test_block_string_adjacent_to_name(self):
-        self.assertEqual(list(_tokenize('foo """ignored""" bar')), ["foo", "bar"])
 
     def test_unterminated_block_string(self):
         with self.assertRaises(LexError):
@@ -162,101 +98,15 @@ class TestTokenize(unittest.TestCase):
         with self.assertRaises(LexError):
             list(_tokenize('"""unclosed""'))
 
-    # ── Number literals ───────────────────────────────────────────────────────
+    # ── Comments ──────────────────────────────────────────────────────────────
 
-    def test_integer_not_yielded(self):
-        self.assertEqual(list(_tokenize("42")), [])
+    def test_comment_stripped(self):
+        self.assertEqual(list(_tokenize("# mutation { }")), [])
 
-    def test_zero_not_yielded(self):
-        self.assertEqual(list(_tokenize("0")), [])
+    def test_comment_does_not_absorb_next_line(self):
+        # mutation on the line after the comment must still be detected
+        self.assertEqual(list(_tokenize("# comment\nmutation")), ["mutation"])
 
-    def test_negative_integer_not_yielded(self):
-        self.assertEqual(list(_tokenize("-42")), [])
-
-    def test_float_not_yielded(self):
-        self.assertEqual(list(_tokenize("3.14")), [])
-
-    def test_float_exponent_not_yielded(self):
-        self.assertEqual(list(_tokenize("1.5e10")), [])
-
-    def test_float_uppercase_exponent(self):
-        self.assertEqual(list(_tokenize("2.0E+3")), [])
-
-    def test_float_negative_exponent(self):
-        self.assertEqual(list(_tokenize("1e-5")), [])
-
-    def test_number_in_argument(self):
-        # Numbers inside arguments are skipped; surrounding tokens still yielded
-        self.assertEqual(
-            list(_tokenize("{ foo(n: 42) }")),
-            ["{", "foo", "(", "n", ":", ")", "}"],
-        )
-
-    def test_invalid_exponent_raises(self):
-        with self.assertRaises(LexError):
-            list(_tokenize("1e"))  # no digit after exponent
-
-    # ── Error cases ───────────────────────────────────────────────────────────
-
-    def test_lone_dot_raises(self):
-        with self.assertRaises(LexError):
-            list(_tokenize("."))
-
-    def test_two_dots_raises(self):
-        with self.assertRaises(LexError):
-            list(_tokenize(".."))
-
-    def test_dot_then_name_raises(self):
-        with self.assertRaises(LexError):
-            list(_tokenize(".field"))
-
-    def test_unknown_char_caret(self):
-        with self.assertRaises(LexError):
-            list(_tokenize("^"))
-
-    def test_unknown_char_tilde(self):
-        with self.assertRaises(LexError):
-            list(_tokenize("~"))
-
-    def test_unknown_char_percent(self):
-        with self.assertRaises(LexError):
-            list(_tokenize("%"))
-
-    def test_unknown_char_mid_document(self):
-        with self.assertRaises(LexError):
-            list(_tokenize("query { foo^ }"))
-
-    def test_lone_minus_raises(self):
-        # '-' not followed by a digit is not valid GraphQL
-        with self.assertRaises(LexError):
-            list(_tokenize("query - foo"))
-
-    # ── Realistic combined cases ──────────────────────────────────────────────
-
-    def test_simple_query_tokens(self):
-        result = list(_tokenize("query { viewer { login } }"))
-        self.assertEqual(result, ["query", "{", "viewer", "{", "login", "}", "}"])
-
-    def test_query_with_variable_tokens(self):
-        result = list(_tokenize("query($id: ID!) { user(id: $id) { name } }"))
-        self.assertEqual(result, [
-            "query", "(", "$", "id", ":", "ID", "!", ")",
-            "{", "user", "(", "id", ":", "$", "id", ")", "{", "name", "}", "}",
-        ])
-
-    def test_mutation_tokens(self):
-        result = list(_tokenize("mutation { createFoo { id } }"))
-        self.assertEqual(result, ["mutation", "{", "createFoo", "{", "id", "}", "}"])
-
-    def test_directive_tokens(self):
-        result = list(_tokenize("query @skip(if: true) { viewer { login } }"))
-        self.assertEqual(result, [
-            "query", "@", "skip", "(", "if", ":", "true", ")",
-            "{", "viewer", "{", "login", "}", "}",
-        ])
-
-
-# ── contains_mutation tests ───────────────────────────────────────────────────
 
 class TestContainsMutation(unittest.TestCase):
 
@@ -475,8 +325,8 @@ class TestContainsMutation(unittest.TestCase):
     # Only the lexer's error cases propagate as LexError.
 
     def test_invalid_character_in_document(self):
-        with self.assertRaises(LexError):
-            contains_mutation("query { foo^ }")
+        # Unknown characters are skipped; only unterminated strings raise.
+        self.assertFalse(contains_mutation("query { foo^ }"))
 
     def test_unterminated_string_in_query(self):
         with self.assertRaises(LexError):
