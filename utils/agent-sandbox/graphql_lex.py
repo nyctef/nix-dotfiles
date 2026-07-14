@@ -7,18 +7,19 @@ validate, or fully parse the document — we only classify top-level operation
 keywords.
 
 Two-stage design
-  1. _tokenize(text) -> list[str]
-       Lexes the raw document string into a flat token list.
+  1. _tokenize(text) -> Iterator[str]
+       Generator that yields tokens on demand from the raw document string.
        String literals (regular and block/triple-quoted) and comments are
        consumed but not emitted, so keywords inside them cannot fool the
        classifier.  Numbers are consumed but not emitted.  Everything that is
        not valid GraphQL raises LexError immediately (fail-closed).
 
   2. contains_mutation(query_str) -> bool
-       Walks the token list, parsing only the top-level definition skeleton:
-       operation keyword / optional name / optional variable block / optional
-       directives / body block.  Returns True the moment any mutation
-       operation is found.  Raises LexError on any unexpected token or
+       Wraps the generator in a one-token peek stream (_Tokens) and walks
+       only as far as needed: returns True the moment a top-level 'mutation'
+       keyword is seen, without lexing or parsing anything that follows.
+       For a document that opens with 'mutation', this reads exactly one
+       token from the generator.  Raises LexError on any unexpected token or
        malformed structure; callers treat that as a deny decision.
 
 Supported top-level definition forms (GraphQL June 2018 spec):
@@ -31,27 +32,30 @@ Type-system / SDL definitions (type, schema, directive, extend, …) are
 intentionally not handled and raise LexError (fail-closed).
 """
 
+from __future__ import annotations
+from typing import Iterator
+
 
 class LexError(Exception):
     """Raised on any lex or parse failure.  Callers should treat this as deny."""
 
 
-# ── Stage 1: Tokeniser ────────────────────────────────────────────────────────
+# ── Stage 1: Tokeniser (generator) ───────────────────────────────────────────
 
 # Single-character punctuators defined by the GraphQL spec (§2.1.8).
 # '...' (spread/ellipsis) is three characters and is handled separately.
 _PUNCT_CHARS = frozenset('!$&():=@[]{}|')
 
 
-def _tokenize(text: str) -> list[str]:
+def _tokenize(text: str) -> Iterator[str]:
     """
-    Lex *text* into a flat list of string tokens.
+    Lazily lex *text*, yielding one token at a time.
 
-    Emitted tokens:
+    Yielded tokens:
       Names / keywords  — their literal text, e.g. 'mutation', 'on', 'User'
       Punctuators       — their literal text: { } ( ) [ ] @ ! $ & | : = ...
 
-    Silently consumed (not emitted):
+    Silently consumed (not yielded):
       String literals   — regular ("…") and block (triple-quoted); content
                           is discarded so embedded keywords can't fool callers
       Line comments     — # … <newline>; discarded entirely
@@ -65,7 +69,6 @@ def _tokenize(text: str) -> list[str]:
       An unterminated string or block-string literal
       A number literal with a malformed exponent
     """
-    tokens: list[str] = []
     i = 0
     n = len(text)
 
@@ -118,15 +121,15 @@ def _tokenize(text: str) -> list[str]:
         elif c == '.':
             if text[i:i + 3] != '...':
                 raise LexError(
-                    f"unexpected '{'.' * (3 - text[i:i+3].count('.'))}' at offset {i}:"
+                    f"unexpected '.' at offset {i}:"
                     f" only '...' (spread) is valid GraphQL"
                 )
-            tokens.append('...')
+            yield '...'
             i += 3
 
         # ── Single-character punctuators (spec §2.1.8) ───────────────────
         elif c in _PUNCT_CHARS:
-            tokens.append(c)
+            yield c
             i += 1
 
         # ── Names: [_A-Za-z][_0-9A-Za-z]*  (spec §2.1.9) ────────────────
@@ -134,12 +137,12 @@ def _tokenize(text: str) -> list[str]:
             j = i + 1
             while j < n and (text[j].isalnum() or text[j] == '_'):
                 j += 1
-            tokens.append(text[i:j])
+            yield text[i:j]
             i = j
 
         # ── Number literals (int or float, optional leading minus) ────────
-        # Consumed but NOT emitted — numbers only appear inside value
-        # positions that the top-level parser skips with _skip_balanced.
+        # Consumed but NOT yielded — numbers only appear inside value
+        # positions that the top-level parser skips via _skip_balanced.
         elif c.isdigit() or (c == '-' and i + 1 < n and text[i + 1].isdigit()):
             if c == '-':
                 i += 1
@@ -160,23 +163,59 @@ def _tokenize(text: str) -> list[str]:
                     raise LexError("invalid number literal: expected digit after exponent sign")
                 while i < n and text[i].isdigit():
                     i += 1
-            # intentionally not appended to tokens
+            # intentionally not yielded
 
         # ── Anything else is outside the GraphQL grammar ──────────────────
         else:
             raise LexError(f"unexpected character {c!r} at offset {i}")
 
-    return tokens
-
 
 # ── Stage 2: Top-level operation classifier ───────────────────────────────────
 
-def _is_name(tok: str) -> bool:
+class _Tokens:
     """
-    Return True for any valid GraphQL Name token.
+    One-token look-ahead wrapper around the _tokenize generator.
 
-    This includes keywords used as names (e.g. 'on', 'query', 'mutation')
-    since GraphQL allows all keywords as identifier names in most positions.
+    peek()    — return the next token without consuming it (None = EOF)
+    consume() — return and consume the next token (None = EOF)
+    expect(t) — consume and return the next token, raising LexError if it
+                is not *t* or if EOF is reached
+    """
+
+    def __init__(self, gen: Iterator[str]) -> None:
+        self._gen = gen
+        self._buf: str | None = None
+        self._empty = False      # True once the generator is exhausted
+
+    def _advance(self) -> None:
+        try:
+            self._buf = next(self._gen)
+        except StopIteration:
+            self._buf = None
+            self._empty = True
+
+    def peek(self) -> str | None:
+        if self._buf is None and not self._empty:
+            self._advance()
+        return self._buf
+
+    def consume(self) -> str | None:
+        tok = self.peek()
+        self._buf = None
+        return tok
+
+    def expect(self, tok: str) -> str:
+        got = self.consume()
+        if got != tok:
+            desc = repr(got) if got is not None else "EOF"
+            raise LexError(f"expected {tok!r}, got {desc}")
+        return got
+
+
+def _is_name(tok: str | None) -> bool:
+    """
+    Return True for any valid GraphQL Name token (including reserved words
+    used as names, since GraphQL allows that in most positions).
     """
     if not tok:
         return False
@@ -186,89 +225,73 @@ def _is_name(tok: str) -> bool:
     )
 
 
-def _skip_balanced(tokens: list[str], i: int, open_tok: str, close_tok: str) -> int:
+def _skip_balanced(stream: _Tokens, open_tok: str, close_tok: str) -> None:
     """
-    Skip a balanced bracket block.  tokens[i] must equal *open_tok*.
-    Returns the index immediately after the matching *close_tok*.
+    Skip a balanced bracket block.  The caller has already consumed *open_tok*;
+    this function consumes tokens until the matching *close_tok* is found.
 
-    Only tracks the specified open/close pair — other bracket types inside
-    are passed through, which is correct because we handle each pair
-    (parens for variable definitions, braces for selection sets) with
-    separate calls to this function.
+    Only the specified open/close pair contributes to depth — other bracket
+    types inside are passed through.  This is correct because each pair
+    ({ }, ( )) is handled with a separate call.
 
-    Raises LexError if the block is unterminated.
+    Raises LexError if EOF is reached before the block is closed.
     """
-    if i >= len(tokens) or tokens[i] != open_tok:
-        got = repr(tokens[i]) if i < len(tokens) else "EOF"
-        raise LexError(f"expected {open_tok!r}, got {got}")
     depth = 1
-    i += 1
-    while i < len(tokens):
-        t = tokens[i]
-        if t == open_tok:
+    while depth:
+        tok = stream.consume()
+        if tok is None:
+            raise LexError(f"unterminated {open_tok!r} block (no matching {close_tok!r})")
+        if tok == open_tok:
             depth += 1
-        elif t == close_tok:
+        elif tok == close_tok:
             depth -= 1
-            if depth == 0:
-                return i + 1
-        i += 1
-    raise LexError(
-        f"unterminated {open_tok!r} block (no matching {close_tok!r})"
-    )
 
 
-def _skip_directives(tokens: list[str], i: int) -> int:
-    """
-    Skip zero or more directive applications: @name or @name(args…).
-    Returns the updated index.
-    Raises LexError if '@' is not followed by a valid name.
-    """
-    while i < len(tokens) and tokens[i] == '@':
-        i += 1  # consume '@'
-        if i >= len(tokens) or not _is_name(tokens[i]):
-            got = repr(tokens[i]) if i < len(tokens) else "EOF"
+def _skip_directives(stream: _Tokens) -> None:
+    """Skip zero or more @directiveName or @directiveName(args…) sequences."""
+    while stream.peek() == '@':
+        stream.consume()  # '@'
+        if not _is_name(stream.peek()):
+            got = repr(stream.peek()) if stream.peek() is not None else "EOF"
             raise LexError(f"expected directive name after '@', got {got}")
-        i += 1  # consume directive name
-        if i < len(tokens) and tokens[i] == '(':
-            i = _skip_balanced(tokens, i, '(', ')')
-    return i
+        stream.consume()  # directive name
+        if stream.peek() == '(':
+            stream.consume()  # '('
+            _skip_balanced(stream, '(', ')')
 
 
-def _skip_operation_tail(tokens: list[str], i: int) -> int:
+def _skip_operation_tail(stream: _Tokens) -> None:
     """
-    Skip the tail of a non-mutation operation definition after its keyword:
+    Skip the tail of a non-mutation operation definition (after its keyword):
       [Name]  [VariableDefinitions]  [Directives]  SelectionSet
-
-    Returns the index after the closing brace of the SelectionSet.
-    Raises LexError if the structure is malformed.
     """
     # Optional operation name.
     # GraphQL allows any Name here, including reserved words used as names
     # (e.g. 'query mutation { … }' is a query *named* "mutation").
-    # We distinguish a name from what follows by checking _is_name: the next
-    # token after a name would be '(' for variables, '{' for the body, or
-    # '@' for directives — none of which satisfy _is_name.
-    if i < len(tokens) and _is_name(tokens[i]):
-        i += 1
-
+    # Punctuators ({, (, @) are never names, so _is_name disambiguates.
+    if _is_name(stream.peek()):
+        stream.consume()
     # Optional variable definitions: ( … )
-    if i < len(tokens) and tokens[i] == '(':
-        i = _skip_balanced(tokens, i, '(', ')')
-
+    if stream.peek() == '(':
+        stream.consume()  # '('
+        _skip_balanced(stream, '(', ')')
     # Optional directives
-    i = _skip_directives(tokens, i)
-
-    # Mandatory selection set: { … }
-    if i >= len(tokens) or tokens[i] != '{':
-        got = repr(tokens[i]) if i < len(tokens) else "EOF"
+    _skip_directives(stream)
+    # Mandatory selection set
+    if stream.peek() != '{':
+        got = repr(stream.peek()) if stream.peek() is not None else "EOF"
         raise LexError(f"expected '{{' for operation body, got {got}")
-    return _skip_balanced(tokens, i, '{', '}')
+    stream.consume()  # '{'
+    _skip_balanced(stream, '{', '}')
 
 
 def contains_mutation(query_str: str) -> bool:
     """
     Return True if any top-level operation in *query_str* is a mutation.
     Return False if all top-level operations are queries or subscriptions.
+
+    Consumes the token stream lazily: for a document whose first definition
+    is a mutation, only that one keyword token is read from the generator.
 
     Raises LexError if:
       - The document cannot be lexed (invalid characters, unterminated strings)
@@ -277,50 +300,38 @@ def contains_mutation(query_str: str) -> bool:
 
     Callers MUST treat LexError as a deny decision (fail-closed).
     """
-    tokens = _tokenize(query_str)
-    i = 0
-    n = len(tokens)
+    stream = _Tokens(_tokenize(query_str))
 
-    while i < n:
-        tok = tokens[i]
+    while stream.peek() is not None:
+        tok = stream.consume()
 
         if tok == '{':
             # Shorthand query: { SelectionSet } — implicitly a query operation.
-            i = _skip_balanced(tokens, i, '{', '}')
+            _skip_balanced(stream, '{', '}')
 
         elif tok in ('query', 'subscription'):
-            # Read operation (subscriptions are treated as reads).
-            i = _skip_operation_tail(tokens, i + 1)
+            _skip_operation_tail(stream)
 
         elif tok == 'mutation':
-            # Found a mutation — no need to parse further.
-            return True
+            return True  # found one — stop immediately, no further lexing needed
 
         elif tok == 'fragment':
-            i += 1
-            # Fragment name: required; must not be the keyword 'on'
-            # (spec says fragment names must not be 'on').
-            if i >= n or not _is_name(tokens[i]) or tokens[i] == 'on':
-                got = repr(tokens[i]) if i < n else "EOF"
+            # Fragment name: required; must not be the keyword 'on'.
+            if not _is_name(stream.peek()) or stream.peek() == 'on':
+                got = repr(stream.peek()) if stream.peek() is not None else "EOF"
                 raise LexError(f"expected fragment name (not 'on'), got {got}")
-            i += 1  # consume fragment name
-            # 'on' keyword
-            if i >= n or tokens[i] != 'on':
-                got = repr(tokens[i]) if i < n else "EOF"
-                raise LexError(f"expected 'on' after fragment name, got {got}")
-            i += 1  # consume 'on'
-            # Named type (type condition)
-            if i >= n or not _is_name(tokens[i]):
-                got = repr(tokens[i]) if i < n else "EOF"
+            stream.consume()  # fragment name
+            stream.expect('on')
+            if not _is_name(stream.peek()):
+                got = repr(stream.peek()) if stream.peek() is not None else "EOF"
                 raise LexError(f"expected type name after 'on', got {got}")
-            i += 1  # consume type name
-            # Optional directives
-            i = _skip_directives(tokens, i)
-            # Mandatory selection set
-            if i >= n or tokens[i] != '{':
-                got = repr(tokens[i]) if i < n else "EOF"
+            stream.consume()  # type condition
+            _skip_directives(stream)
+            if stream.peek() != '{':
+                got = repr(stream.peek()) if stream.peek() is not None else "EOF"
                 raise LexError(f"expected '{{' for fragment body, got {got}")
-            i = _skip_balanced(tokens, i, '{', '}')
+            stream.consume()  # '{'
+            _skip_balanced(stream, '{', '}')
 
         else:
             raise LexError(

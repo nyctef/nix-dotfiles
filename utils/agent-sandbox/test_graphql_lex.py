@@ -16,240 +16,240 @@ class TestTokenize(unittest.TestCase):
     # ── Basics ────────────────────────────────────────────────────────────────
 
     def test_empty_string(self):
-        self.assertEqual(_tokenize(""), [])
+        self.assertEqual(list(_tokenize("")), [])
 
     def test_whitespace_only(self):
-        self.assertEqual(_tokenize("   \t\n\r  "), [])
+        self.assertEqual(list(_tokenize("   \t\n\r  ")), [])
 
     def test_comma_is_insignificant(self):
         # commas are whitespace in GraphQL
-        self.assertEqual(_tokenize("a,b,c"), ["a", "b", "c"])
+        self.assertEqual(list(_tokenize("a,b,c")), ["a", "b", "c"])
 
     def test_unicode_bom_ignored(self):
-        self.assertEqual(_tokenize("\ufeffquery"), ["query"])
+        self.assertEqual(list(_tokenize("\ufeffquery")), ["query"])
 
     # ── Names ─────────────────────────────────────────────────────────────────
 
     def test_single_name(self):
-        self.assertEqual(_tokenize("viewer"), ["viewer"])
+        self.assertEqual(list(_tokenize("viewer")), ["viewer"])
 
     def test_multiple_names(self):
-        self.assertEqual(_tokenize("query mutation fragment"), ["query", "mutation", "fragment"])
+        self.assertEqual(list(_tokenize("query mutation fragment")), ["query", "mutation", "fragment"])
 
     def test_name_with_underscore(self):
-        self.assertEqual(_tokenize("__typename"), ["__typename"])
+        self.assertEqual(list(_tokenize("__typename")), ["__typename"])
 
     def test_name_with_digits(self):
-        self.assertEqual(_tokenize("field2"), ["field2"])
+        self.assertEqual(list(_tokenize("field2")), ["field2"])
 
     def test_keywords_are_names(self):
         # All keywords are valid names in GraphQL
         for kw in ("query", "mutation", "subscription", "fragment", "on",
                    "true", "false", "null"):
-            self.assertIn(kw, _tokenize(kw))
+            self.assertIn(kw, list(_tokenize(kw)))
 
     # ── Punctuators ───────────────────────────────────────────────────────────
 
     def test_braces(self):
-        self.assertEqual(_tokenize("{}"), ["{", "}"])
+        self.assertEqual(list(_tokenize("{}")), ["{", "}"])
 
     def test_parens(self):
-        self.assertEqual(_tokenize("()"), ["(", ")"])
+        self.assertEqual(list(_tokenize("()")), ["(", ")"])
 
     def test_brackets(self):
-        self.assertEqual(_tokenize("[]"), ["[", "]"])
+        self.assertEqual(list(_tokenize("[]")), ["[", "]"])
 
     def test_single_char_punctuators(self):
         self.assertEqual(
-            _tokenize("! $ & : = @ | "),
+            list(_tokenize("! $ & : = @ | ")),
             ["!", "$", "&", ":", "=", "@", "|"],
         )
 
     def test_spread_operator(self):
-        self.assertEqual(_tokenize("..."), ["..."])
+        self.assertEqual(list(_tokenize("...")), ["..."])
 
     def test_spread_inside_selection(self):
         self.assertEqual(
-            _tokenize("{ ...F }"),
+            list(_tokenize("{ ...F }")),
             ["{", "...", "F", "}"],
         )
 
     # ── Comments ──────────────────────────────────────────────────────────────
 
     def test_comment_entirely_stripped(self):
-        self.assertEqual(_tokenize("# this is a comment"), [])
+        self.assertEqual(list(_tokenize("# this is a comment")), [])
 
     def test_comment_before_token(self):
-        self.assertEqual(_tokenize("# comment\nquery"), ["query"])
+        self.assertEqual(list(_tokenize("# comment\nquery")), ["query"])
 
     def test_comment_after_token(self):
-        self.assertEqual(_tokenize("query # comment"), ["query"])
+        self.assertEqual(list(_tokenize("query # comment")), ["query"])
 
     def test_comment_containing_mutation_keyword(self):
         # 'mutation' inside a comment must not be detected
-        self.assertEqual(_tokenize("# mutation\nquery"), ["query"])
+        self.assertEqual(list(_tokenize("# mutation\nquery")), ["query"])
 
     def test_comment_does_not_absorb_next_line(self):
-        result = _tokenize("# line1\nfoo\n# line2\nbar")
+        result = list(_tokenize("# line1\nfoo\n# line2\nbar"))
         self.assertEqual(result, ["foo", "bar"])
 
     # ── String literals (regular) ─────────────────────────────────────────────
 
     def test_empty_string_literal(self):
-        self.assertEqual(_tokenize('""'), [])
+        self.assertEqual(list(_tokenize('""')), [])
 
     def test_string_literal_stripped(self):
-        self.assertEqual(_tokenize('"hello world"'), [])
+        self.assertEqual(list(_tokenize('"hello world"')), [])
 
     def test_string_containing_mutation_keyword(self):
-        self.assertEqual(_tokenize('"mutation"'), [])
+        self.assertEqual(list(_tokenize('"mutation"')), [])
 
     def test_string_with_escaped_quote(self):
-        self.assertEqual(_tokenize(r'"say \"hello\""'), [])
+        self.assertEqual(list(_tokenize(r'"say \"hello\""')), [])
 
     def test_string_with_escaped_backslash(self):
-        self.assertEqual(_tokenize(r'"path\\file"'), [])
+        self.assertEqual(list(_tokenize(r'"path\\file"')), [])
 
     def test_string_with_escaped_unicode(self):
-        self.assertEqual(_tokenize(r'"\u0041"'), [])
+        self.assertEqual(list(_tokenize(r'"\u0041"')), [])
 
     def test_string_adjacent_to_name(self):
         # Names on either side of a string are still yielded
-        self.assertEqual(_tokenize('foo "ignored" bar'), ["foo", "bar"])
+        self.assertEqual(list(_tokenize('foo "ignored" bar')), ["foo", "bar"])
 
     def test_unterminated_string_eof(self):
         with self.assertRaises(LexError):
-            _tokenize('"unclosed')
+            list(_tokenize('"unclosed'))
 
     def test_unterminated_string_newline(self):
         # Raw newline inside a regular string is illegal
         with self.assertRaises(LexError):
-            _tokenize('"unclosed\n"')
+            list(_tokenize('"unclosed\n"'))
 
     def test_unterminated_string_carriage_return(self):
         with self.assertRaises(LexError):
-            _tokenize('"unclosed\r"')
+            list(_tokenize('"unclosed\r"'))
 
     # ── Block string literals ─────────────────────────────────────────────────
 
     def test_empty_block_string(self):
-        self.assertEqual(_tokenize('""""""'), [])
+        self.assertEqual(list(_tokenize('""""""')), [])
 
     def test_block_string_simple(self):
-        self.assertEqual(_tokenize('"""hello"""'), [])
+        self.assertEqual(list(_tokenize('"""hello"""')), [])
 
     def test_block_string_multiline(self):
-        self.assertEqual(_tokenize('"""line1\nline2\nline3"""'), [])
+        self.assertEqual(list(_tokenize('"""line1\nline2\nline3"""')), [])
 
     def test_block_string_containing_mutation_keyword(self):
-        self.assertEqual(_tokenize('"""mutation"""'), [])
+        self.assertEqual(list(_tokenize('"""mutation"""')), [])
 
     def test_block_string_containing_double_quote(self):
-        self.assertEqual(_tokenize('"""say "hi" please"""'), [])
+        self.assertEqual(list(_tokenize('"""say "hi" please"""')), [])
 
     def test_block_string_escaped_triple_quote(self):
         # \""" inside a block string is the escape for a literal """
-        self.assertEqual(_tokenize('"""has \\"""escaped"""'), [])
+        self.assertEqual(list(_tokenize('"""has \\"""escaped"""')), [])
 
     def test_block_string_adjacent_to_name(self):
-        self.assertEqual(_tokenize('foo """ignored""" bar'), ["foo", "bar"])
+        self.assertEqual(list(_tokenize('foo """ignored""" bar')), ["foo", "bar"])
 
     def test_unterminated_block_string(self):
         with self.assertRaises(LexError):
-            _tokenize('"""unclosed')
+            list(_tokenize('"""unclosed'))
 
     def test_unterminated_block_string_two_quotes(self):
         with self.assertRaises(LexError):
-            _tokenize('"""unclosed""')
+            list(_tokenize('"""unclosed""'))
 
     # ── Number literals ───────────────────────────────────────────────────────
 
     def test_integer_not_yielded(self):
-        self.assertEqual(_tokenize("42"), [])
+        self.assertEqual(list(_tokenize("42")), [])
 
     def test_zero_not_yielded(self):
-        self.assertEqual(_tokenize("0"), [])
+        self.assertEqual(list(_tokenize("0")), [])
 
     def test_negative_integer_not_yielded(self):
-        self.assertEqual(_tokenize("-42"), [])
+        self.assertEqual(list(_tokenize("-42")), [])
 
     def test_float_not_yielded(self):
-        self.assertEqual(_tokenize("3.14"), [])
+        self.assertEqual(list(_tokenize("3.14")), [])
 
     def test_float_exponent_not_yielded(self):
-        self.assertEqual(_tokenize("1.5e10"), [])
+        self.assertEqual(list(_tokenize("1.5e10")), [])
 
     def test_float_uppercase_exponent(self):
-        self.assertEqual(_tokenize("2.0E+3"), [])
+        self.assertEqual(list(_tokenize("2.0E+3")), [])
 
     def test_float_negative_exponent(self):
-        self.assertEqual(_tokenize("1e-5"), [])
+        self.assertEqual(list(_tokenize("1e-5")), [])
 
     def test_number_in_argument(self):
         # Numbers inside arguments are skipped; surrounding tokens still yielded
         self.assertEqual(
-            _tokenize("{ foo(n: 42) }"),
+            list(_tokenize("{ foo(n: 42) }")),
             ["{", "foo", "(", "n", ":", ")", "}"],
         )
 
     def test_invalid_exponent_raises(self):
         with self.assertRaises(LexError):
-            _tokenize("1e")  # no digit after exponent
+            list(_tokenize("1e"))  # no digit after exponent
 
     # ── Error cases ───────────────────────────────────────────────────────────
 
     def test_lone_dot_raises(self):
         with self.assertRaises(LexError):
-            _tokenize(".")
+            list(_tokenize("."))
 
     def test_two_dots_raises(self):
         with self.assertRaises(LexError):
-            _tokenize("..")
+            list(_tokenize(".."))
 
     def test_dot_then_name_raises(self):
         with self.assertRaises(LexError):
-            _tokenize(".field")
+            list(_tokenize(".field"))
 
     def test_unknown_char_caret(self):
         with self.assertRaises(LexError):
-            _tokenize("^")
+            list(_tokenize("^"))
 
     def test_unknown_char_tilde(self):
         with self.assertRaises(LexError):
-            _tokenize("~")
+            list(_tokenize("~"))
 
     def test_unknown_char_percent(self):
         with self.assertRaises(LexError):
-            _tokenize("%")
+            list(_tokenize("%"))
 
     def test_unknown_char_mid_document(self):
         with self.assertRaises(LexError):
-            _tokenize("query { foo^ }")
+            list(_tokenize("query { foo^ }"))
 
     def test_lone_minus_raises(self):
         # '-' not followed by a digit is not valid GraphQL
         with self.assertRaises(LexError):
-            _tokenize("query - foo")
+            list(_tokenize("query - foo"))
 
     # ── Realistic combined cases ──────────────────────────────────────────────
 
     def test_simple_query_tokens(self):
-        result = _tokenize("query { viewer { login } }")
+        result = list(_tokenize("query { viewer { login } }"))
         self.assertEqual(result, ["query", "{", "viewer", "{", "login", "}", "}"])
 
     def test_query_with_variable_tokens(self):
-        result = _tokenize("query($id: ID!) { user(id: $id) { name } }")
+        result = list(_tokenize("query($id: ID!) { user(id: $id) { name } }"))
         self.assertEqual(result, [
             "query", "(", "$", "id", ":", "ID", "!", ")",
             "{", "user", "(", "id", ":", "$", "id", ")", "{", "name", "}", "}",
         ])
 
     def test_mutation_tokens(self):
-        result = _tokenize("mutation { createFoo { id } }")
+        result = list(_tokenize("mutation { createFoo { id } }"))
         self.assertEqual(result, ["mutation", "{", "createFoo", "{", "id", "}", "}"])
 
     def test_directive_tokens(self):
-        result = _tokenize("query @skip(if: true) { viewer { login } }")
+        result = list(_tokenize("query @skip(if: true) { viewer { login } }"))
         self.assertEqual(result, [
             "query", "@", "skip", "(", "if", ":", "true", ")",
             "{", "viewer", "{", "login", "}", "}",
