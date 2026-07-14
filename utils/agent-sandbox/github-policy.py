@@ -30,28 +30,14 @@ Verdicts:
 
 import json
 import logging
-import re
+
+from graphql_lex import LexError, contains_mutation as _gql_contains_mutation
 
 logger = logging.getLogger(__name__)
 
 ALLOW, DENY, PASS = "ALLOW", "DENY", "PASS"
 
 _READ_METHODS = {"GET", "HEAD", "OPTIONS"}
-
-
-def _strip_graphql(query: str) -> str:
-    """Remove comments and string literals so keyword scanning is reliable."""
-    query = re.sub(r'"""(?:.|\n)*?"""', " ", query)   # block strings
-    query = re.sub(r'"(?:\\.|[^"\\])*"', " ", query)  # normal strings
-    query = re.sub(r"#[^\n]*", " ", query)              # line comments
-    return query
-
-
-# Matches a top-level `mutation` operation keyword. Shorthand `{ … }` documents
-# are always queries. Matching `mutation` after stripping strings/comments is
-# sound; false positives (a query that mentions the word) merely block a read
-# (fail-closed, acceptable).
-_MUTATION_OP = re.compile(r"(?:^|[\s})])mutation\b\s*[A-Za-z_]*\s*[({@]")
 
 
 class GitHubPolicy:
@@ -94,18 +80,21 @@ class GitHubPolicy:
     def _classify_graphql(self, body_text: str) -> tuple[str, str]:
         if not body_text:
             return DENY, "graphql: empty body (default-deny)"
-        query = ""
         try:
             payload = json.loads(body_text)
-            if isinstance(payload, list):  # batched queries
-                query = "\n".join(str(item.get("query", "")) for item in payload if isinstance(item, dict))
-            elif isinstance(payload, dict):
-                query = str(payload.get("query", ""))
         except (ValueError, TypeError):
-            return DENY, "graphql: unparseable body (default-deny)"
-        if not query:
+            return DENY, "graphql: unparseable JSON body (default-deny)"
+        if not isinstance(payload, dict):
+            return DENY, "graphql: unexpected JSON shape (default-deny)"
+        query_str = payload.get("query", "")
+        if not query_str:
             return DENY, "graphql: no query field (default-deny)"
-        if _MUTATION_OP.search(_strip_graphql(query)):
+
+        try:
+            is_mutation = _gql_contains_mutation(query_str)
+        except LexError as e:
+            return DENY, f"graphql: parse error (default-deny): {e}"
+        if is_mutation:
             return DENY, "graphql: mutation operation blocked"
         return ALLOW, "graphql: query only"
 

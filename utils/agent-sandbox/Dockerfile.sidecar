@@ -20,6 +20,7 @@ RUN pip install --no-cache-dir mitmproxy==11.1.3 PyYAML==6.0.2
 
 COPY egress-policy.py /opt/egress-policy.py
 COPY github-policy.py /opt/github-policy.py
+COPY graphql_lex.py /opt/graphql_lex.py
 COPY cred-inject.py /opt/cred-inject.py
 COPY firewall-domains.txt /etc/firewall-domains.txt
 COPY credential-map.yaml /etc/credential-map.yaml
