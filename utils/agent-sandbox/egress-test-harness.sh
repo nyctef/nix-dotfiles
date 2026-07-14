@@ -501,7 +501,7 @@ fi
 
 # ── 16. GitHub read-only policy (github-policy.py) ──────────────────────────────
 
-section "GitHub read-only (reads open; all writes blocked)"
+section "GitHub read-only (reads + GraphQL queries open; writes + mutations blocked)"
 
 # Reads stay open.
 expect_allowed "GET repo (read allowed)" \
@@ -534,12 +534,20 @@ expect_github_write_blocked "create gist (write blocked)" \
     -H 'Content-Type: application/json' \
     -d '{"public":false,"files":{"x.txt":{"content":"should never be created"}}}'
 
-# GraphQL is POST → blocked wholesale (reads and mutations alike).
-expect_github_write_blocked "GraphQL POST (blocked)" \
+# GraphQL mutations are writes → blocked.
+expect_github_write_blocked "GraphQL mutation (blocked)" \
     "https://api.github.com/graphql" POST \
     -H 'Authorization: token SANDBOX-PLACEHOLDER-GH-TOKEN' \
     -H 'Content-Type: application/json' \
     -d '{"query":"mutation { createIssue(input:{repositoryId:\"x\",title:\"y\"}) { issue { id } } }"}'
+
+# GraphQL queries are reads → allowed (the body is inspected to make this call).
+expect_allowed "GraphQL query (allowed)" \
+    "https://api.github.com/graphql" \
+    -X POST \
+    -H 'Authorization: token SANDBOX-PLACEHOLDER-GH-TOKEN' \
+    -H 'Content-Type: application/json' \
+    -d '{"query":"query { viewer { login } }"}'
 
 # ═════════════════════════════════════════════════════════════════════════════
 # SUMMARY

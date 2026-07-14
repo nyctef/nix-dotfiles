@@ -9,15 +9,15 @@ Goal — mitigate the blast radius of prompt injection, not prevent it:
   - Reads (GET/HEAD) to GitHub stay open. Reads are the injection vector, but
     exfil via read is weak (an attacker can't see GitHub's access logs).
   - Writes are blocked wholesale. Anything that isn't a plain read — every
-    POST/PUT/PATCH/DELETE, git push, and GraphQL POST — is denied.
+    POST/PUT/PATCH/DELETE and git push — is denied.
 
-The only exception is git's fetch/clone path: `POST .../git-upload-pack` is how
-the smart-HTTP protocol serves a clone or fetch, so it is a read and is allowed.
-`git-receive-pack` (push) and everything else are denied.
-
-Note the deliberate coarseness: GraphQL read queries are POSTs, so they are
-blocked too. gh CLI porcelain that reads via GraphQL will fail in-sandbox; use a
-REST GET (gh api -X GET / plain GET) or run those workflows outside the sandbox.
+The only exceptions are:
+  - git's fetch/clone path: `POST .../git-upload-pack` is how the smart-HTTP
+    protocol serves a clone or fetch, so it is a read and is allowed.
+    `git-receive-pack` (push) falls through to deny.
+  - GraphQL: `POST /graphql` is inspected. Top-level `query` operations are
+    allowed; top-level `mutation` operations are denied. This lets gh CLI
+    porcelain that reads via GraphQL work in-sandbox.
 
 `GitHubPolicy` is pure (no mitmproxy imports in the hot path) so it can be unit
 tested directly; the module-level `addons` wires it into mitmproxy.
@@ -28,13 +28,30 @@ Verdicts:
   PASS   — not a GitHub host; not our concern (egress-policy.py still applies).
 """
 
+import json
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
 ALLOW, DENY, PASS = "ALLOW", "DENY", "PASS"
 
 _READ_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+def _strip_graphql(query: str) -> str:
+    """Remove comments and string literals so keyword scanning is reliable."""
+    query = re.sub(r'"""(?:.|\n)*?"""', " ", query)   # block strings
+    query = re.sub(r'"(?:\\.|[^"\\])*"', " ", query)  # normal strings
+    query = re.sub(r"#[^\n]*", " ", query)              # line comments
+    return query
+
+
+# Matches a top-level `mutation` operation keyword. Shorthand `{ … }` documents
+# are always queries. Matching `mutation` after stripping strings/comments is
+# sound; false positives (a query that mentions the word) merely block a read
+# (fail-closed, acceptable).
+_MUTATION_OP = re.compile(r"(?:^|[\s})])mutation\b\s*[A-Za-z_]*\s*[({@]")
 
 
 class GitHubPolicy:
@@ -49,7 +66,7 @@ class GitHubPolicy:
         )
 
     # ── the decision ──────────────────────────────────────────────────────────
-    def classify(self, host: str, method: str, path: str) -> tuple[str, str]:
+    def classify(self, host: str, method: str, path: str, body_text: str = "") -> tuple[str, str]:
         """Return (verdict, reason). Pure — no mitmproxy dependency."""
         host = host.lower().rstrip(".")
         method = method.upper()
@@ -66,8 +83,31 @@ class GitHubPolicy:
         if path.split("?", 1)[0].endswith("/git-upload-pack"):
             return ALLOW, "git fetch (upload-pack)"
 
-        # Everything else is a write (REST mutations, git push, GraphQL POST).
+        # GraphQL: POST to /graphql — inspect the body to distinguish queries
+        # (reads, allowed) from mutations (writes, denied).
+        if host == "api.github.com" and path.split("?", 1)[0].rstrip("/") == "/graphql":
+            return self._classify_graphql(body_text)
+
+        # Everything else is a write (REST mutations, git push).
         return DENY, f"{method} {host}{path}: write blocked (GitHub is read-only in sandbox)"
+
+    def _classify_graphql(self, body_text: str) -> tuple[str, str]:
+        if not body_text:
+            return DENY, "graphql: empty body (default-deny)"
+        query = ""
+        try:
+            payload = json.loads(body_text)
+            if isinstance(payload, list):  # batched queries
+                query = "\n".join(str(item.get("query", "")) for item in payload if isinstance(item, dict))
+            elif isinstance(payload, dict):
+                query = str(payload.get("query", ""))
+        except (ValueError, TypeError):
+            return DENY, "graphql: unparseable body (default-deny)"
+        if not query:
+            return DENY, "graphql: no query field (default-deny)"
+        if _MUTATION_OP.search(_strip_graphql(query)):
+            return DENY, "graphql: mutation operation blocked"
+        return ALLOW, "graphql: query only"
 
 
 # ── mitmproxy integration ───────────────────────────────────────────────────
@@ -85,8 +125,15 @@ try:
             if not host or not GitHubPolicy.is_github_host(host):
                 return
 
+            # Read the body only for the GraphQL endpoint — buffering the body
+            # of every POST would be wasteful for large git pushes etc.
+            body_text = ""
+            path_only = flow.request.path.split("?", 1)[0].rstrip("/")
+            if host.lower() == "api.github.com" and path_only == "/graphql":
+                body_text = flow.request.get_text(strict=False) or ""
+
             verdict, reason = self.policy.classify(
-                host, flow.request.method, flow.request.path
+                host, flow.request.method, flow.request.path, body_text
             )
             if verdict == DENY:
                 logger.warning("GITHUB-WRITE BLOCKED: %s %s%s — %s",
