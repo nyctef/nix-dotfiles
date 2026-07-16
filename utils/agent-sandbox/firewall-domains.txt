@@ -8,6 +8,7 @@
 # ---- Anthropic (Claude API + telemetry) ----
 api.anthropic.com
 statsig.anthropic.com
+status.claude.com
 statsig.com
 sentry.io
 
