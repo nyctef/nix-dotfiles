@@ -29,6 +29,7 @@ DECLARATIVE_SETTINGS='
   "enabledPlugins": {
     "csharp-lsp@claude-plugins-official": false
   },
+  "respondToBashCommands": false,
   "hooks": {
     "Notification": [
       {
