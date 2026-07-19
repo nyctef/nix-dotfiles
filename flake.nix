@@ -139,6 +139,9 @@
                   "unix:///var/run/docker.sock"
                   "tcp://0.0.0.0:2375"
                 ];
+                # work around issue with check point VPN - apparently auto MTU
+                # discovery breaks at some point down the line
+                mtu = 1350;
               };
               users.users.nixos.extraGroups = [ "docker" ];
 
