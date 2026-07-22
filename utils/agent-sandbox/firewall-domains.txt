@@ -57,6 +57,21 @@ codeload.github.com
 uploads.github.com
 pkg-containers.githubusercontent.com
 ghcr.io
+# `gh run view --log-failed` / the Actions "download logs" API redirect from
+# api.github.com to a per-run SAS URL on a sharded blob storage account, e.g.
+# productionresultssa2.blob.core.windows.net. The shard number varies by run,
+# so (as with vsblobprod above) we scope to the "productionresultssa" marker
+# rather than opening all of *.blob.core.windows.net. Same caveat: this is a
+# blast-radius speed bump, not a wall, since storage-account names are only
+# globally unique, not substring-reserved.
+#
+# GitHub actually publishes the exact current shard list (productionresultssa0
+# through productionresultssa19 as of writing) under domains.actions in
+# https://api.github.com/meta, which would let this be an exact-match list
+# instead of a glob - but that needs the policy loader to fetch and cache an
+# external list rather than just reading a static file, which isn't wired up
+# yet.
+*productionresultssa*.blob.core.windows.net
 
 # ---- Ubuntu / system packages ----
 archive.ubuntu.com
