@@ -110,20 +110,6 @@ def extract_step_log_lines(log_text, step_started_at, step_completed_at):
     return lines
 
 
-def print_annotations_fallback(repo, job_id):
-    annotations, err = run_gh_json(["api", f"repos/{repo}/check-runs/{job_id}/annotations"])
-    if err is not None:
-        print(f"    [error fetching annotations] {err}")
-        return
-    if not annotations:
-        print("    (no annotations and no log available)")
-        return
-    print("    annotations:")
-    for a in annotations:
-        location = f"{a['path']}#{a['start_line']}" if a.get("path") else ""
-        print(f"      [{a['annotation_level']}] {location}: {a['message']}")
-
-
 def diagnose_github_actions_check(repo, link):
     # link looks like https://github.com/<owner>/<repo>/actions/runs/<run_id>/job/<job_id>
     job_id = urlparse(link).path.rstrip("/").split("/")[-1]
@@ -140,8 +126,7 @@ def diagnose_github_actions_check(repo, link):
 
     log_text, log_err = run_gh(["api", f"repos/{repo}/actions/jobs/{job_id}/logs"])
     if log_err is not None:
-        print(f"    [log unavailable: {log_err}] falling back to annotations")
-        print_annotations_fallback(repo, job_id)
+        print(f"    [error fetching log] {log_err}")
         return
 
     for step in failed_steps:
