@@ -18,6 +18,8 @@ let
   tk = import ../utils/ticket.nix { inherit pkgs; ticket-src = inputs.ticket; };
   cleanup-worktrees = import ../utils/cleanup-worktrees.nix { inherit pkgs; };
   recent-claude-sessions = import ../utils/recent-claude-sessions.nix { inherit pkgs; };
+  renovate_dashboard = import ../utils/renovate_dashboard.nix { inherit pkgs; };
+  renovate_pr_diagnose = import ../utils/renovate_pr_diagnose.nix { inherit pkgs; };
 in
 {
 
@@ -112,6 +114,8 @@ in
       tk
       cleanup-worktrees
       recent-claude-sessions
+      renovate_dashboard
+      renovate_pr_diagnose
 
       python315
 
