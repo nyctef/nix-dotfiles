@@ -180,7 +180,7 @@ resolve_external_symlinks() {
         [[ "$target" == "$real_host_dir"/* ]] && continue
         local rel="${link#"$host_dir"/}"
         OPTIONAL_MOUNTS+=(-v "${target}:${container_dir}/${rel}:${mode}")
-    done < <(find "$host_dir" -maxdepth 2 -type l -print0 2>/dev/null)
+    done < <(find "$host_dir" -maxdepth 4 -type l -print0 2>/dev/null)
 }
 
 add_mount() {
