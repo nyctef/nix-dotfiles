@@ -11,11 +11,13 @@ Usage: renovate_pr_diagnose.py <owner/repo> <pr-number>
 import json
 import subprocess
 import sys
+from datetime import datetime
 from urllib.parse import urlparse
 
 DIFF_LINE_LIMIT = 200
 TEST_FAILURE_LIMIT = 5
 TEST_DETAILS_CHAR_LIMIT = 1500
+LOG_SNIPPET_LINE_LIMIT = 80
 
 
 def run_gh(args, input=None):
@@ -73,31 +75,86 @@ def print_pr_summary(repo, pr_number):
         print(f"    ... ({len(diff_lines) - DIFF_LINE_LIMIT} more lines omitted)")
 
 
-def diagnose_github_actions_check(repo, link):
-    # link looks like https://github.com/<owner>/<repo>/actions/runs/<run_id>/job/<job_id>
-    job_id = urlparse(link).path.rstrip("/").split("/")[-1]
+def parse_gha_timestamp(ts):
+    # GHA log/API timestamps look like "2026-07-20T10:15:23.1234567Z" - trim to
+    # microsecond precision so datetime.fromisoformat can parse them.
+    ts = ts.rstrip("Z")
+    if "." in ts:
+        head, frac = ts.split(".", 1)
+        ts = f"{head}.{frac[:6]}"
+    try:
+        return datetime.fromisoformat(ts)
+    except ValueError:
+        return None
 
-    jobs, err = run_gh_json(["api", f"repos/{repo}/actions/jobs/{job_id}"])
-    if err is not None:
-        print(f"    [error fetching job] {err}")
-        return
 
-    failed_steps = [s for s in jobs.get("steps", []) if s.get("conclusion") == "failure"]
-    print(f"    job: {jobs['name']} ({jobs['conclusion']})")
-    for step in failed_steps:
-        print(f"    failed step: {step['number']}. {step['name']}")
+def extract_step_log_lines(log_text, step_started_at, step_completed_at):
+    """The per-job log endpoint returns one combined, timestamp-prefixed log for
+    every step. There's no per-step boundary marker, so slice by matching each
+    line's leading timestamp against the step's started_at/completed_at window."""
+    start = parse_gha_timestamp(step_started_at) if step_started_at else None
+    end = parse_gha_timestamp(step_completed_at) if step_completed_at else None
+    lines = []
+    for line in log_text.splitlines():
+        ts_str, sep, text = line.partition(" ")
+        if not sep:
+            continue
+        ts = parse_gha_timestamp(ts_str)
+        if ts is None:
+            continue
+        if start and ts < start:
+            continue
+        if end and ts > end:
+            continue
+        lines.append(text)
+    return lines
 
+
+def print_annotations_fallback(repo, job_id):
     annotations, err = run_gh_json(["api", f"repos/{repo}/check-runs/{job_id}/annotations"])
     if err is not None:
         print(f"    [error fetching annotations] {err}")
         return
     if not annotations:
-        print("    (no annotations; raw log download is blocked in this sandbox - see run URL)")
+        print("    (no annotations and no log available)")
         return
     print("    annotations:")
     for a in annotations:
         location = f"{a['path']}#{a['start_line']}" if a.get("path") else ""
         print(f"      [{a['annotation_level']}] {location}: {a['message']}")
+
+
+def diagnose_github_actions_check(repo, link):
+    # link looks like https://github.com/<owner>/<repo>/actions/runs/<run_id>/job/<job_id>
+    job_id = urlparse(link).path.rstrip("/").split("/")[-1]
+
+    job, err = run_gh_json(["api", f"repos/{repo}/actions/jobs/{job_id}"])
+    if err is not None:
+        print(f"    [error fetching job] {err}")
+        return
+
+    failed_steps = [s for s in job.get("steps", []) if s.get("conclusion") == "failure"]
+    print(f"    job: {job['name']} ({job['conclusion']})")
+    for step in failed_steps:
+        print(f"    failed step: {step['number']}. {step['name']}")
+
+    log_text, log_err = run_gh(["api", f"repos/{repo}/actions/jobs/{job_id}/logs"])
+    if log_err is not None:
+        print(f"    [log unavailable: {log_err}] falling back to annotations")
+        print_annotations_fallback(repo, job_id)
+        return
+
+    for step in failed_steps:
+        lines = extract_step_log_lines(log_text, step.get("started_at"), step.get("completed_at"))
+        print(f"\n    log snippet for step {step['number']}. {step['name']}:")
+        if not lines:
+            print("      (no log lines matched this step's time window)")
+            continue
+        snippet = lines[-LOG_SNIPPET_LINE_LIMIT:]
+        if len(lines) > len(snippet):
+            print(f"      ... ({len(lines) - len(snippet)} earlier lines omitted)")
+        for line in snippet:
+            print(f"      {line}")
 
 
 def diagnose_teamcity_check(link):
