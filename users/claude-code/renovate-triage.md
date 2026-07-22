@@ -1,64 +1,80 @@
 ---
 name: renovate-triage
-description: Use when triaging open renovate/dependency-update PRs across one or more repos, checking Dependency Dashboard queue status, or diagnosing why a renovate PR's CI build is failing
-allowed-tools: Bash(renovate-dashboard:*), Bash(renovate-pr-diagnose:*), Bash(gh repo clone:*), Bash(git clone:*)
+description: Help with managing the renovate backlog
+disable-model-invocation: true
+allowed-tools: Bash(renovate-dashboard:*), Bash(renovate-pr-diagnose:*), Bash(gh repo clone:*)
 ---
 
 ## Overview
 
-Triages renovate-managed dependency-update PRs: summarizes open PRs and Dependency Dashboard queue state, flags PRs that are green and ready to merge, and digs into failing PRs' diffs/CI output to suggest a likely cause and next step.
+Triages renovate-managed dependency-update PRs: summarizes open PRs and
+Dependency Dashboard queue state, flags PRs that are green and ready to merge,
+and digs into failing PRs' diffs/CI output to suggest a likely cause and next
+step.
 
-**This skill is investigate-only.** It must never merge a PR, push a commit, close/edit a PR, or otherwise modify a repository. Every output is a report and a suggestion for a human to act on.
-
-## When to Use
-
-- "check on renovate PRs" / "triage the dependency dashboard"
-- "why is this renovate PR failing" (single-PR case — skip to Step 3 directly)
+**This skill is investigate-only.** It must never merge a PR, push a commit,
+close/edit a PR, or otherwise modify a repository. Every output is a report and
+a suggestion for a human to act on.
 
 ## Tools available
 
-- `renovate-dashboard` — lists open renovate PRs plus each one's Dependency Dashboard stage and build status (Building / Build succeeded / Build failed), across the fixed repo list defined inside `utils/renovate_dashboard.py` (edit `REPOS` there to change coverage). Also reports dashboard-only stage counts (Rate-Limited, Pending Status Checks, Ignored/Blocked, ...) not already covered by the PR list.
-- `renovate-pr-diagnose <owner/repo> <pr-number>` — diff summary plus failing-check detail for one PR: GitHub Actions job/step/raw log snippet, or TeamCity build problems and deduped failed-test detail.
+- `renovate-dashboard` — lists open renovate PRs plus each one's Dependency
+  Dashboard stage and build status (Building / Build succeeded / Build failed),
+  across the fixed repo list defined inside `utils/renovate_dashboard.py` (edit
+  `REPOS` there to change coverage). Also reports dashboard-only stage counts
+  (Rate-Limited, Pending Status Checks, Ignored/Blocked, ...) not already
+  covered by the PR list.
+- `renovate-pr-diagnose <owner/repo> <pr-number>` — diff summary plus
+  failing-check detail for one PR: GitHub Actions job/step/raw log snippet, or
+  TeamCity build problems and deduped failed-test detail.
 
 ## Workflow
 
 ### Step 1: Run the dashboard
 
-Run `renovate-dashboard` and present the results to the user as-is: open PRs (with stage + build status), and any remaining dashboard stage counts.
+Run `renovate-dashboard` and present the results to the user as-is: open PRs
+(with stage + build status), and any remaining dashboard stage counts.
 
 ### Step 2: Flag ready-to-merge PRs
 
-Any open PR with build status "Build succeeded" is a merge candidate, regardless of its Dependency Dashboard stage (e.g. a PR staged "Edited/Blocked" because someone pushed a manual commit is still a real open PR — if it's green, it's still worth flagging). Call these out explicitly by repo and PR number. Do not merge them yourself — just suggest it.
+Any open PR with build status "Build succeeded" is a merge candidate,
+regardless of its Dependency Dashboard stage (e.g. a PR staged "Edited/Blocked"
+because someone pushed a manual commit is still a real open PR — if it's green,
+it's still worth flagging). Call these out explicitly by repo and PR number. Do
+not merge them yourself — just suggest it.
 
 ### Step 3: Diagnose failing PRs
 
-For each PR with build status "Build failed", run `renovate-pr-diagnose <owner/repo> <pr-number>` and read the diff plus failure detail.
+Take a look at one PR with build status "Build failed", run
+`renovate-pr-diagnose <owner/repo> <pr-number>` and read the diff plus failure
+detail.
 
-If the diff/log doesn't give enough context (e.g. need to see surrounding code, or check whether a warning pre-dates this PR), shallow-clone the repo's PR branch to a temp location and investigate there:
+If the diff/log doesn't give enough context (e.g. need to see surrounding code,
+or check whether a warning pre-dates this PR), shallow-clone the repo's PR
+branch to a temp location and investigate there:
 
 ```bash
 gh repo clone <owner/repo> /tmp/claude/repos/<repo> -- --branch <headRefName> --depth 1
 ```
 
-Then use Grep/Glob/Read against that checkout. No cleanup needed — `/tmp/claude/repos/` is ephemeral.
+Then use Grep/Glob/Read against that checkout. No cleanup needed —
+`/tmp/claude/repos/` is ephemeral.
 
-For each failing PR, summarize the likely root cause (e.g. "breaking API change in the new major version", "unrelated TeamCity docker-agent flake", "SDK bump promoted a pre-existing nullable warning to an error") and a concrete suggested next step (fix a specific line, bump a related package alongside it, rebase/retry since it's an infra flake, or close/ignore if not worth pursuing).
+For this failing PR, summarize the likely root cause (e.g. "breaking API change
+in the new major version", "unrelated TeamCity docker-agent flake", "SDK bump
+promoted a pre-existing nullable warning to an error") and a concrete suggested
+next step (fix a specific line, bump a related package alongside it,
+rebase/retry since it's an infra flake, or close/ignore if not worth pursuing).
 
 ### Step 4: Report
 
-Summarize per repo: how many PRs are ready to merge, how many are failing (1-line cause + suggestion each), how many are still building/pending, and how many are queued at other dashboard stages.
+Summarize per repo: how many PRs are ready to merge, how many are failing
+(1-line cause + suggestion each), how many are still building/pending, and how
+many are queued at other dashboard stages.
 
 ## Constraints
 
-- Never run `gh pr merge`, `git push`, `gh pr close`, `gh pr edit`, or any other mutating command against the target repos.
-- Never commit or push from the shallow-cloned temp checkout.
-- If the user wants a PR actually merged or a fix actually applied, that's a separate, explicit follow-up action — not something this skill does on its own.
+This skill is used only for reporting current status and suggesting potential
+unblocking actions. Mutations/fixes will either be given as explicit instructions
+or followed up in a subsequent session.
 
-## Common Mistakes
-
-| Mistake | Fix |
-|---|---|
-| Merging a green PR automatically | Only ever suggest merging — leave the action to the user |
-| Cloning into the working directory | Clone to `/tmp/claude/repos/<repo>` instead |
-| Re-deriving dashboard stage/build status by hand from `gh pr checks` | Just run `renovate-dashboard` — it already computes both |
-| Treating a TeamCity infra flake as a code problem | Check the problem/test failure text first — docker/agent flakes are common and just need a rebase/retry, not a code fix |
