@@ -11,7 +11,7 @@ Usage: renovate_pr_diagnose.py <owner/repo> <pr-number>
 import json
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
 DIFF_LINE_LIMIT = 200
@@ -91,9 +91,17 @@ def parse_gha_timestamp(ts):
 def extract_step_log_lines(log_text, step_started_at, step_completed_at):
     """The per-job log endpoint returns one combined, timestamp-prefixed log for
     every step. There's no per-step boundary marker, so slice by matching each
-    line's leading timestamp against the step's started_at/completed_at window."""
+    line's leading timestamp against the step's started_at/completed_at window.
+
+    step_completed_at is whole-second precision, but log lines carry
+    sub-second timestamps - a step's own closing log lines (often the most
+    informative, e.g. the actual ##[error] line) can land later within that
+    same second and get excluded. Pad the end boundary by a second to avoid
+    truncating them."""
     start = parse_gha_timestamp(step_started_at) if step_started_at else None
     end = parse_gha_timestamp(step_completed_at) if step_completed_at else None
+    if end is not None:
+        end += timedelta(seconds=1)
     lines = []
     for line in log_text.splitlines():
         ts_str, sep, text = line.partition(" ")
