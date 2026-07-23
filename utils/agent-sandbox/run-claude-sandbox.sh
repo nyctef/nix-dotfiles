@@ -180,8 +180,10 @@ ENVS=(
     # Claude auth — use CLAUDE_CODE_OAUTH_TOKEN (not ANTHROPIC_API_KEY)
     # because Claude Code silently accepts CLAUDE_CODE_OAUTH_TOKEN, while
     # ANTHROPIC_API_KEY triggers an interactive "Detected a custom API key"
-    # prompt. The sidecar proxy injects the real credential (API key via
-    # x-api-key header, or OAuth Bearer token) on outbound requests.
+    # prompt. The agent holds this placeholder; the sidecar swaps it for the
+    # real OAuth Bearer token (provisioned via --anthropic-cred oauth, i.e.
+    # from claude-code-oauth-token.age). Claude Code is never given the API
+    # key from claude-api-token.age — that belongs to the pi/SDK agents.
     --env "CLAUDE_CODE_OAUTH_TOKEN=SANDBOX-PLACEHOLDER-CLAUDE-OAUTH"
     # gh CLI reads the placeholder token from env (no config-dir writes).
     # Sidecar swaps it for the real PAT on outbound requests.
@@ -193,10 +195,11 @@ ENVS=(
 )
 
 # ---------- Claude OAuth token → sidecar, not agent ----------
-# If CLAUDE_DOCKER_OAUTH_TOKEN is set on the host, route it through the sidecar
-# proxy instead of passing the real token into the agent container. The agent
-# gets a placeholder; the sidecar injects the real Bearer token on outbound
-# requests to Anthropic API endpoints.
+# The real OAuth token (claude-code-oauth-token.age, exposed as
+# CLAUDE_DOCKER_OAUTH_TOKEN) is routed through the sidecar proxy by
+# run-agent-sandbox.sh (--anthropic-cred oauth) instead of entering the agent
+# container. The agent gets a placeholder; the sidecar injects the real Bearer
+# token on outbound requests to Anthropic API endpoints.
 #
 # Always mask .credentials.json so the agent can't read stored auth tokens from
 # the mounted ~/.claude directory (which is rw for session state).
@@ -213,9 +216,8 @@ MOUNTS+=( --mount "rw:${CRED_MASK}:/home/claude/.claude/.credentials.json" )
 
 # CLAUDE_CODE_OAUTH_TOKEN is already set in ENVS above (always, not
 # conditionally) so Claude Code starts without prompting for auth.
-# When CLAUDE_DOCKER_OAUTH_TOKEN is set on the host, run-agent-sandbox.sh
-# passes it to the sidecar as SANDBOX_CRED_CLAUDE_OAUTH for Bearer injection.
-# When only ANTHROPIC_API_KEY is set, the sidecar injects it as x-api-key.
+# run-agent-sandbox.sh passes the real OAuth token to the sidecar as
+# SANDBOX_CRED_CLAUDE_OAUTH (via --anthropic-cred oauth) for Bearer injection.
 
 # ---------- hand off to the generic core ----------
 # Not exec'd, so the EXIT trap above runs after the core returns to clean up the
@@ -223,6 +225,7 @@ MOUNTS+=( --mount "rw:${CRED_MASK}:/home/claude/.claude/.credentials.json" )
 
 "$HERE/run-agent-sandbox.sh" \
     --agent-cmd "claude --dangerously-skip-permissions" \
+    --anthropic-cred oauth \
     "${MOUNTS[@]}" \
     "${ENVS[@]}" \
     ${WORKTREE_ARGS[@]+"${WORKTREE_ARGS[@]}"} \

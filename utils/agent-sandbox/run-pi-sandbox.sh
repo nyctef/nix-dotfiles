@@ -222,6 +222,7 @@ done
 
 "$HERE/run-agent-sandbox.sh" \
     --agent-cmd "${PI_DRV}/bin/pi" \
+    --anthropic-cred apikey \
     "${MOUNTS[@]}" \
     "${ENVS[@]}" \
     ${WORKTREE_ARGS[@]+"${WORKTREE_ARGS[@]}"} \

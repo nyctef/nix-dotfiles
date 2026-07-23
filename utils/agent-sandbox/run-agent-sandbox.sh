@@ -38,6 +38,13 @@ set -euo pipefail
 #   --env <NAME=VALUE>  Extra env var passed into the container; repeatable.
 #   --worktree <name>   Branch a git worktree from HEAD and mount it as the
 #                       working dir (main repo mounted ro alongside).
+#   --anthropic-cred <kind>  Which Anthropic credential to provision to the
+#                       sidecar for this run: "oauth" (Claude Code — Bearer
+#                       token from claude-code-oauth-token.age), "apikey"
+#                       (pi and other SDK agents — x-api-key from
+#                       claude-api-token.age), or "none" (default). Exactly one
+#                       is provisioned per run so the two never collide on
+#                       api.anthropic.com.
 #
 #   Run from any project directory — it mounts $PWD as the working dir.
 
@@ -51,15 +58,17 @@ SUPPORT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 AGENT_CMD=""
 WORKTREE_NAME=""
+ANTHROPIC_CRED="none"
 MOUNT_SPECS=()
 ENV_SPECS=()
 AGENT_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --agent-cmd) AGENT_CMD="$2"; shift 2 ;;
-        --mount)     MOUNT_SPECS+=("$2"); shift 2 ;;
-        --env)       ENV_SPECS+=("$2"); shift 2 ;;
-        --worktree)  WORKTREE_NAME="$2"; shift 2 ;;
+        --agent-cmd)      AGENT_CMD="$2"; shift 2 ;;
+        --mount)          MOUNT_SPECS+=("$2"); shift 2 ;;
+        --env)            ENV_SPECS+=("$2"); shift 2 ;;
+        --worktree)       WORKTREE_NAME="$2"; shift 2 ;;
+        --anthropic-cred) ANTHROPIC_CRED="$2"; shift 2 ;;
         --)          shift; AGENT_ARGS=("$@"); break ;;
         *)  echo "ERROR: unknown option '$1' (agent args go after '--')" >&2; exit 1 ;;
     esac
@@ -266,27 +275,53 @@ if [[ -n "$_NUGET_PAT" ]]; then
 fi
 unset _NUGET_PAT _NUGET_RAW _NUGET_SECRET
 
-# Anthropic API key: read directly from the agenix-decrypted secret file
-# (secrets/claude-api-token.age → $XDG_RUNTIME_DIR/agenix/claude-api-token,
-# a bare token), same as the TeamCity/Brave tokens below. Reading the secret
-# directly avoids depending on an ANTHROPIC_API_KEY env var in the launching
-# shell (which the pi wrapper used to extract from auth.json).
-_ANTHROPIC_SECRET="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/agenix/claude-api-token"
-if [[ -r "$_ANTHROPIC_SECRET" ]]; then
-    _ANTHROPIC_KEY="$(cat "$_ANTHROPIC_SECRET")"
-    SIDECAR_CRED_ENV+=(-e "SANDBOX_CRED_ANTHROPIC_KEY=$_ANTHROPIC_KEY")
-    echo "  Credential: Anthropic API key → sidecar (placeholder to agent)"
-    unset _ANTHROPIC_KEY
-fi
-unset _ANTHROPIC_SECRET
-
-# Claude Code OAuth token (Bearer auth for api.anthropic.com).
-_CLAUDE_OAUTH="${CLAUDE_DOCKER_OAUTH_TOKEN:-}"
-if [[ -n "$_CLAUDE_OAUTH" ]]; then
-    SIDECAR_CRED_ENV+=(-e "SANDBOX_CRED_CLAUDE_OAUTH=$_CLAUDE_OAUTH")
-    echo "  Credential: Claude OAuth token → sidecar (placeholder to agent)"
-fi
-unset _CLAUDE_OAUTH
+# Anthropic credential: exactly one kind per run, chosen by the wrapper via
+# --anthropic-cred. Provisioning only one keeps the two auth schemes from
+# colliding on api.anthropic.com — with both active, the x-api-key service is
+# injected first (it's earlier in credential-map.yaml) and overrides the OAuth
+# Bearer, so Claude Code would silently authenticate with the API key.
+#   oauth  → Claude Code: Bearer token from claude-code-oauth-token.age
+#            (exposed on the host as CLAUDE_DOCKER_OAUTH_TOKEN).
+#   apikey → pi and other SDK agents: x-api-key from claude-api-token.age.
+case "$ANTHROPIC_CRED" in
+    apikey)
+        # Read directly from the agenix-decrypted secret file (a bare token),
+        # same as the TeamCity/Brave tokens below.
+        _ANTHROPIC_SECRET="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/agenix/claude-api-token"
+        if [[ -r "$_ANTHROPIC_SECRET" ]]; then
+            _ANTHROPIC_KEY="$(cat "$_ANTHROPIC_SECRET")"
+            SIDECAR_CRED_ENV+=(-e "SANDBOX_CRED_ANTHROPIC_KEY=$_ANTHROPIC_KEY")
+            echo "  Credential: Anthropic API key (claude-api-token) → sidecar (placeholder to agent)"
+            unset _ANTHROPIC_KEY
+        else
+            echo "  WARN: --anthropic-cred apikey but $_ANTHROPIC_SECRET not readable" >&2
+        fi
+        unset _ANTHROPIC_SECRET
+        ;;
+    oauth)
+        # Prefer the env var (wired up via claude-code.nix / waitcat); fall back
+        # to reading the agenix-decrypted secret file directly.
+        _CLAUDE_OAUTH="${CLAUDE_DOCKER_OAUTH_TOKEN:-}"
+        if [[ -z "$_CLAUDE_OAUTH" ]]; then
+            _OAUTH_SECRET="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/agenix/claudeCodeOauthToken"
+            [[ -r "$_OAUTH_SECRET" ]] && _CLAUDE_OAUTH="$(cat "$_OAUTH_SECRET")"
+            unset _OAUTH_SECRET
+        fi
+        if [[ -n "$_CLAUDE_OAUTH" ]]; then
+            SIDECAR_CRED_ENV+=(-e "SANDBOX_CRED_CLAUDE_OAUTH=$_CLAUDE_OAUTH")
+            echo "  Credential: Claude OAuth token (claude-code-oauth-token) → sidecar (placeholder to agent)"
+        else
+            echo "  WARN: --anthropic-cred oauth but no OAuth token available (CLAUDE_DOCKER_OAUTH_TOKEN unset and secret unreadable)" >&2
+        fi
+        unset _CLAUDE_OAUTH
+        ;;
+    none)
+        ;;
+    *)
+        echo "ERROR: unknown --anthropic-cred '$ANTHROPIC_CRED' (want oauth|apikey|none)" >&2
+        exit 1
+        ;;
+esac
 
 # Brave Search API key (X-Subscription-Token for api.search.brave.com).
 # Decrypted from secrets/brave-search-api-key.age by agenix.

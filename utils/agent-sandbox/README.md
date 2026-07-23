@@ -172,10 +172,15 @@ trick) — we don't refactor the old script to share code yet.
   Mode-aware placeholder stripping (skips `Authorization` header values for
   `header` mode services).
 - **Launcher plumbing** (`run-agent-sandbox.sh`): reads host credentials
-  (`gh auth token`, the Anthropic API token from the agenix secret file
-  `$XDG_RUNTIME_DIR/agenix/claude-api-token`, `CLAUDE_DOCKER_OAUTH_TOKEN`,
-  NuGet PAT) and passes them to the sidecar via `-e SANDBOX_CRED_*`. Agent
-  container never sees them.
+  (`gh auth token`, the Anthropic credential, NuGet PAT) and passes them to the
+  sidecar via `-e SANDBOX_CRED_*`. Agent container never sees them. The
+  Anthropic credential is selected per-agent by the wrapper via
+  `--anthropic-cred`: Claude Code uses `oauth` (Bearer token from
+  `claude-code-oauth-token.age`, exposed as `CLAUDE_DOCKER_OAUTH_TOKEN`), pi
+  uses `apikey` (x-api-key from `claude-api-token.age`). Exactly one is
+  provisioned per run — provisioning both would let the x-api-key service
+  (earlier in `credential-map.yaml`) override the OAuth Bearer, silently
+  authenticating Claude Code with the API key.
 - **Placeholder configs** (agent wrappers): the `gh` CLI placeholder token is
   passed via the `GH_TOKEN` env var (not a `~/.config/gh/hosts.yml` mount — gh
   tries to rewrite that file for a config-format migration, which fails against
@@ -189,7 +194,9 @@ trick) — we don't refactor the old script to share code yet.
   empty file) no longer reach the agent container.
 - **Claude auth**: uses `CLAUDE_CODE_OAUTH_TOKEN` (not `ANTHROPIC_API_KEY`) to
   avoid Claude Code's interactive "Detected a custom API key" prompt. The
-  sidecar injects the real Bearer token on outbound API requests.
+  sidecar injects the real Bearer token (from `claude-code-oauth-token.age`) on
+  outbound API requests. Claude Code is never given the `claude-api-token.age`
+  API key — that belongs to the pi/SDK agents.
 - **Pi wrapper** (`run-pi-sandbox.sh`): sanitises config files
   (`settings.json`, `auth.json`) with placeholder keys before mounting. The
   real Anthropic key is not read here — the core launcher reads it from the
