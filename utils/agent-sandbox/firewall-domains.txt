@@ -18,6 +18,7 @@ api.nuget.org
 azureedge.net
 dotnetcli.azureedge.net
 repo1.maven.org
+repo.maven.apache.org
 repo.gradle.org
 s3.amazonaws.com
 maven.pkg.github.com
