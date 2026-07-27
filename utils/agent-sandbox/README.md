@@ -253,6 +253,15 @@ making GitHub read-only in-sandbox:
 - Make firewall/proxy **fail-closed and self-verifying**: assert a blocked host
   fails AND an allowed host succeeds (the old check only tested the blocked
   case).
+- **jj config** mounted ro from `~/.config/jj/config.toml` (no credentials in
+  it, so no sanitizing needed). Without it jj has no identity, so rewritten
+  commits get the empty identity as committer and `jj git push` refuses them.
+  Known gap: the work identity is scoped by `--when.repositories = ["~/rg"]`,
+  which can't match container paths (`~` is `/home/claude`, project mounted at
+  `/home/claude/project`), so work repos get the personal identity. Same
+  mismatch affects `~/.config/git/config`'s `includeIf "gitdir:~/rg/"`. Left as
+  is for now; fix by pinning `JJ_USER`/`JJ_EMAIL` (+ `GIT_AUTHOR_*`/
+  `GIT_COMMITTER_*`) from the host-resolved identity if it starts to bite.
 
 ## Security comparison: Phase B vs Phase B.1
 

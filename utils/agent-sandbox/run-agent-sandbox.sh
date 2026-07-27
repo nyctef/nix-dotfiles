@@ -219,6 +219,14 @@ for spec in ${MOUNT_SPECS[@]+"${MOUNT_SPECS[@]}"}; do
     add_mount "$mode" "$host" "$container"
 done
 
+_JJ_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/jj/config.toml"
+if [[ -e "$_JJ_CONFIG" ]]; then
+    add_mount ro "$_JJ_CONFIG" /home/claude/.config/jj/config.toml
+else
+    echo "  WARN: $_JJ_CONFIG not found" >&2
+fi
+unset _JJ_CONFIG
+
 # ---------- assemble env from --env specs ----------
 
 EXTRA_ENV=()
