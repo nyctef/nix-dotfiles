@@ -30,6 +30,7 @@ DECLARATIVE_SETTINGS='
     "csharp-lsp@claude-plugins-official": false
   },
   "respondToBashCommands": false,
+  "disableAgentView": true,
   "hooks": {
     "Notification": [
       {
