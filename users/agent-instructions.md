@@ -3,4 +3,5 @@
 - use gh cli to read contents of issues and pull requests. fetch both description and comments
 - do not add github issue references to commit messages
 - stay on detached HEADs. only switch branches when told to.
-- when executing tests or other long-running commands, prefer to pipe the output to a temporary file and analyze it separately, instead of piping to grep directly. that way you're less likely to miss important details.
+- when executing tests or other long-running commands, prefer to pipe the output to a temporary file and analyze it separately, instead of piping to grep or tail directly. that way you're less likely to miss important details.
+- Avoid adding comments which just narrate the diff or refer to specific jargon within the agent session. Do include comments if the resulting state is strange or non-obvious.
