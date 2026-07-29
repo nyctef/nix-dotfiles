@@ -116,7 +116,7 @@ RUN echo "claude ALL=(ALL) NOPASSWD: /usr/bin/apt-get" \
 # destination doesn't already exist, dockerd creates it as root instead.
 RUN mkdir -p /home/claude/.nuget /home/claude/.config/NuGet /home/claude/.config/jj /home/claude/.local && \
     ln -s /home/claude/.config/NuGet /home/claude/.nuget/NuGet && \
-    chown -R claude:claude /home/claude/.nuget /home/claude/.config /home/claude/.local
+    chown -R claude:claude /home/claude
 
 # Entrypoint: waits for sidecar CA, installs it, starts inner dockerd, sets
 # the default route through the sidecar, then drops to claude and launches
