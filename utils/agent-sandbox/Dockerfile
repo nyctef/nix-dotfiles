@@ -111,7 +111,10 @@ RUN echo "claude ALL=(ALL) NOPASSWD: /usr/bin/apt-get" \
 
 # NuGet config layout: ~/.nuget/NuGet -> ~/.config/NuGet so bind-mounted
 # configs are found at NuGet's expected path.
-RUN mkdir -p /home/claude/.nuget /home/claude/.config/NuGet /home/claude/.local && \
+#
+# Mount target dirs are pre-created and claude-owned here: if a bind mount's
+# destination doesn't already exist, dockerd creates it as root instead.
+RUN mkdir -p /home/claude/.nuget /home/claude/.config/NuGet /home/claude/.config/jj /home/claude/.local && \
     ln -s /home/claude/.config/NuGet /home/claude/.nuget/NuGet && \
     chown -R claude:claude /home/claude/.nuget /home/claude/.config /home/claude/.local
 
