@@ -147,6 +147,13 @@
 
               networking.hostName = "tachikoma";
 
+              # store /tmp in RAM. this isn't on by default in nixos because
+              # large builds dump a ton of intermediate build artifacts into
+              # /tmp, so this could cause builds to fail. if that's a problem
+              # then setting nix.settings.build-dir to point the build stuff
+              # somewhere else (eg /var/tmp) should work around that problem
+              boot.tmp.useTmpfs = true;
+
               # Register sysbox-runc as a Docker runtime:
               #   docker run --runtime=sysbox-runc ...
               virtualisation.sysbox.enable = true;
