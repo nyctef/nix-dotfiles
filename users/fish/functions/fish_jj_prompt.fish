@@ -13,7 +13,13 @@ function fish_jj_prompt --description 'Write out the jj prompt'
         return 1
     end
 
-    set branches (string trim (jj log --no-graph --no-pager --ignore-working-copy --color always -r 'bookmarks() & ..@' -T ' bookmarks++" "'))
+    set all_bookmarks (jj log --no-graph --no-pager --ignore-working-copy --color always -r 'bookmarks() & ..@' -T 'bookmarks.map(|b| b.name()).join("\n") ++ "\n"' | string trim | string split \n | string match -v '')
+
+    if test (count $all_bookmarks) -gt 3
+        set branches (string join ' ' $all_bookmarks[1..3] '...')
+    else
+        set branches (string join ' ' $all_bookmarks)
+    end
 
     set state (string trim (jj log --no-graph --no-pager --ignore-working-copy --color always -r @ -T '
             separate(
