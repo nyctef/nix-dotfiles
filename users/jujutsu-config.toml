@@ -34,6 +34,7 @@ log = "builtin_log_oneline"
 
 [template-aliases]
 'format_timestamp(timestamp)' = 'timestamp.ago()'
+'commit_timestamp(commit)' = 'commit.author().timestamp()'
 log = 'zzzz | (visible_heads() & committer_date(after:"1 month ago")) | trunk()..@ | trunk()'
 
 [aliases]
