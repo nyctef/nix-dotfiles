@@ -1,95 +1,73 @@
 # agent-sandbox
 
-The **new** hardened sandbox for running an *untrusted AI coding agent* (Claude
-Code today; pi-dev and others later) with Docker access and network egress,
-without letting it reach the host or exfiltrate freely. Developed alongside the
-working `utils/run-claude-docker.sh` (which stays untouched as the daily driver)
-— we cut over only once this path is proven end-to-end. Informed by a
-reverse-engineering study of Docker `sbx` (host-side TLS MITM proxy for
-credential injection + Cedar egress policy + microVM isolation).
-
-The launcher is split into an **agent-agnostic core** and a thin
-**Claude-specific wrapper**: the core takes the agent command, extra bind
-mounts, and env vars as arguments; the wrapper supplies Claude's. Adding another
-agent (pi-dev) is then a sibling wrapper, no core changes. The `claude`
-user/home *inside the image* is still fixed (image-level) — generalising that is
-deferred.
-
-Unlike the old single-file script, the pieces are split into separate files:
-
-| file                    | role                                                        |
-|-------------------------|-------------------------------------------------------------|
-| `default.nix`           | copies the folder into the store; PATH-wraps both launchers |
-| `run-claude-sandbox.sh` | Claude wrapper — claude cmd/binary/config mounts/env, then calls the core |
-| `run-pi-sandbox.sh`     | Pi wrapper — pi binary (Nix closure), config/state mounts/env, then calls the core |
-| `run-agent-sandbox.sh`  | **generic core** — worktree, build, network, sidecar, `docker run` |
-| `Dockerfile`            | agent image — full `dockerd` inside, **no host socket**, **no proxy** |
-| `Dockerfile.sidecar`    | sidecar proxy image — mitmproxy forward proxy, L7 egress policy |
-| `sidecar-entrypoint.sh` | in-sidecar: starts mitmproxy in forward mode, signals ready  |
-| `firewall-domains.txt`  | hostname allowlist — single source of truth for L7 egress policy        |
-| `egress-policy.py`      | mitmproxy addon — enforces hostname allowlist (SNI + Host), anti-fronting |
-| `github-policy.py`      | mitmproxy addon — GitHub read-only enforcement (reads open; all writes blocked except git fetch/upload-pack) |
-| `cred-inject.py`        | mitmproxy addon — credential injection (placeholder → real swap) |
-| `credential-map.yaml`   | domain→service→env-var mapping for credential injection |
-| `entrypoint.sh`         | in-agent: install CA, configure proxy env, start inner dockerd, run agent |
-| `test-sandbox-egress.sh` | test wrapper — drives the core with a test harness as the "agent"     |
-| `egress-test-harness.sh` | in-container test suite — exercises every layer of the network stack   |
-
-## Core idea
+A hardened sandbox for running an AI coding agent (Claude Code, pi-dev) with
+Docker access and network egress, without letting it reach the host or exfiltrate
+freely.
 
 The agent container runs under `--runtime=sysbox-runc`, so it is **unprivileged
 with real UID remapping** yet can run its **own dockerd nested inside**. That
-gives native `dotnet test -> docker run -p` ergonomics (single netns,
-`localhost`, bind mounts) without ever handing the agent the host Docker socket
-(the old `--docker` flag's one-hop-to-host-root, now gone).
+gives native `dotnet test → docker run -p` ergonomics (single netns, `localhost`,
+bind mounts) without ever handing the agent the host Docker socket.
 
-## Threat model (the framing that drives every decision)
+All egress goes through a **sidecar proxy container** that enforces a hostname
+allowlist, makes GitHub read-only, and injects real credentials in-flight so the
+agent never holds them.
 
-- **The agent (Claude) is the adversary.** Not the test databases it spins up.
-- Therefore the agent's container must be **unprivileged** and must **not** hold
-  the host Docker socket. Anything that leaves the agent in a privileged
-  container (incl. single-container rootful/rootless dind) is ~no better than
-  the old `--docker` host-socket mount (one hop to host root).
-- Egress must be **mandatory** (kernel-enforced), not cooperative (`HTTP_PROXY`
-  an app can ignore). Policy should be expressed at **L7 (hostname/SNI/Host)**,
-  not L3/L4 (resolved IPs), to avoid CDN/shared-IP leaks and domain fronting.
+## Usage
 
-## Why sysbox (the enabling prerequisite)
+Run from any project directory — `$PWD` is mounted as the working dir.
 
-Sysbox (`sysbox-runc`) runs a container's *own* dockerd **unprivileged** via
-user namespaces + idmapped mounts. That uniquely gives both:
-- **ergonomics**: single network namespace → `localhost:5432` and bind mounts
-  work like a dev box (matches the `dotnet test → docker run -p` workflow);
-- **isolation**: the agent container is not privileged → no trivial host escape.
+```
+run-claude-sandbox [--worktree <name>] [claude args...]
+run-pi-sandbox     [--worktree <name>] [pi args...]
+```
 
-The alternative (unprivileged agent + privileged dind sidecar + body-filtering
-socket proxy) also keeps the agent unprivileged but is more moving parts and
-reintroduces port/path remapping. Sysbox collapses those layers.
+`--worktree <name>` branches a git worktree from HEAD and mounts that as the
+working dir instead, with the main repo mounted read-only alongside. Reusing an
+existing worktree with uncommitted changes is refused rather than reset.
 
-Sysbox is enabled declaratively in this repo via the vendored
-`system/sysbox-nix/` (`virtualisation.sysbox.enable = true`). See
-**Sysbox enablement** below for the full history.
+Both are thin wrappers over the generic core, which can drive any agent:
 
-## Architecture: sidecar proxy (Phase B.1)
+```
+run-agent-sandbox --agent-cmd <cmd> [options] [-- agent args...]
+
+  --agent-cmd <cmd>        Command to run as the agent (required).
+  --mount <mode>:<host>:<container>
+                           Extra bind mount; repeatable. mode = ro|rw. Host
+                           paths are resolved and Nix-store symlinks beneath
+                           them expanded. Missing host paths are skipped.
+  --env <NAME=VALUE>       Extra env var; repeatable.
+  --worktree <name>        As above.
+  --anthropic-cred <kind>  Which Anthropic credential the sidecar provisions:
+                           "oauth" (Claude Code), "apikey" (pi and other SDK
+                           agents), or "none" (default). Exactly one per run —
+                           provisioning both would let the x-api-key service
+                           override the OAuth Bearer.
+```
+
+Each run gets its own container, sidecar, network, CA, and Docker data-root
+(all suffixed with the launcher's PID), so parallel sandboxes never collide.
+Everything is removed on exit.
+
+## Architecture
 
 ```
 ┌─── Host Docker ──────────────────────────────────────────────┐
 │                                                              │
-│  ┌── sandbox-internal-$$ (Docker bridge, sidecar=gateway) ─┐ │
+│  ┌── sandbox-internal-$$ (Docker --internal network) ──────┐ │
 │  │                                                          │ │
 │  │  ┌─ Agent Container (sysbox-runc) ─────────────────┐    │ │
 │  │  │  claude user → agent process                     │    │ │
 │  │  │  inner dockerd → nested containers               │    │ │
-│  │  │  default route → sidecar IP (172.30.0.2)         │    │ │
-│  │  │  NO proxy, NO iptables egress rules              │    │ │
+│  │  │  HTTP_PROXY/HTTPS_PROXY → sidecar                │    │ │
 │  │  │  CA from sidecar (shared volume, read-only)      │    │ │
 │  │  └──────────────────────────┬───────────────────────┘    │ │
-│  │                             │ HTTP(S)                    │ │
+│  │                             │ HTTP(S) CONNECT            │ │
 │  │  ┌─ Sidecar Container ─────┴──────────────────────┐     │ │
-│  │  │  mitmproxy (transparent) ← PREROUTING REDIRECT │     │ │
-│  │  │  iptables: FORWARD deny (non-HTTP blocked)     │     │ │
-│  │  │  egress-policy.py (hostname allowlist)          │     │ │
-│  │  │  firewall-domains.txt                          │     │ │
+│  │  │  mitmproxy (forward proxy mode)                │     │ │
+│  │  │  egress-policy.py  (hostname allowlist)         │     │ │
+│  │  │  github-policy.py  (GitHub read-only)           │     │ │
+│  │  │  cred-inject.py    (placeholder → real creds)   │     │ │
 │  │  └──────────────────────────┬─────────────────────┘     │ │
 │  └─────────────────────────────│─────────────────────────────┘ │
 │                                │ allowed traffic only          │
@@ -99,342 +77,200 @@ Sysbox is enabled declaratively in this repo via the vendored
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**Key security properties:**
-- Agent container is on `--internal` network → host iptables DROP non-subnet dests
-- Sidecar is on both internal + bridge → forward proxy with L7 policy
-- Agent uses HTTP_PROXY/HTTPS_PROXY to route through sidecar
-- Even if agent ignores proxy env vars → `--internal` blocks direct connections
-- No iptables, ip_forward, NET_ADMIN, or route manipulation needed in either container
-- Policy files (allowlist, addon) are in sidecar → agent can't read or modify them
-- Proxy process is in sidecar → agent can't see or kill it
-- CA shared via Docker volume (mounted read-only in agent container)
+The agent container sits on a Docker `--internal` network, which installs
+host-level iptables rules (`DOCKER-INTERNAL`) that DROP any packet with a
+non-subnet destination. The sidecar is on both that network and the default
+bridge, so it is the only route out.
 
-## Build order — each phase is independently shippable
+This is what makes egress **mandatory rather than cooperative**: `HTTP_PROXY` is
+a hint an app can ignore, but ignoring it here just means the connection is
+dropped. Enforcement lives in host iptables and cannot be modified from inside
+any container, even with root and `NET_ADMIN`. The proxy process, policy addons,
+and allowlist are all in the sidecar's filesystem, where the agent can't read,
+modify, or kill them.
 
-Reuse what already works by copying/extracting from `run-claude-docker.sh`
-(worktree setup, Nix symlink resolution, mount helpers, the Ctrl-Z rcfile
-trick) — we don't refactor the old script to share code yet.
+## Threat model
 
-### Phase A — run the agent under sysbox  ✅ proven
-- Launch the agent container with `--runtime=sysbox-runc`; install dockerd
-  *inside* the image; **no host-socket mount at all** (the old `--docker` flag
-  is simply not carried over).
-- Inner daemon data-root on a **per-instance** volume (`/var/lib/docker`) so
-  parallel agents never share a data-root. Optional host **registry
-  pull-through mirror** (`registry:2` + `REGISTRY_PROXY_REMOTEURL`) for warm
-  caches without sharing storage. *(mirror not yet implemented)*
-- Outcome: `dotnet test → docker run` works with native ergonomics; agent
-  unprivileged; test-DB containers nested inside, not host siblings.
+**The agent is the adversary** — not the test databases it spins up. Everything
+above follows from that:
 
-### Phase B — network: flip policy L3/L4 → L7 (biggest correctness win)  ✅ proven
-- Replaced dnsmasq+ipset+iptables IP-allowlisting with L7 proxy (mitmproxy
-  transparent mode) + iptables mandatory floor.
-- Per-run CA generated by mitmproxy, installed into system trust store + Java
-  keystore + standard env vars (`SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, etc.).
-- Self-verifying: asserts blocked host fails AND allowed host succeeds.
+- The agent's container must be unprivileged and must not hold the host Docker
+  socket. Anything leaving the agent in a privileged container (including
+  single-container rootful/rootless dind) is roughly equivalent to mounting the
+  host socket: one hop to host root.
+- Egress policy is expressed at **L7 (hostname/SNI/Host)**, not L3/L4 (resolved
+  IPs), to avoid CDN/shared-IP leaks and domain fronting. The proxy rejects
+  requests where the Host header disagrees with the SNI.
+- Real credentials never enter the agent container.
 
-### Phase B.1 — sidecar proxy (move enforcement outside the container)  ✅ proven
-- Run mitmproxy in a **separate sidecar container** on a Docker `--internal`
-  network. The agent container's only route to the internet goes through
-  the sidecar. Even if the agent gains root and flushes iptables inside its
-  own container, the sidecar's enforcement is unreachable.
-- Architecture: sidecar on both `sandbox-internal-$$` (--internal) and the
-  default bridge (internet). Agent container on `sandbox-internal-$$` only.
-  Agent uses HTTP_PROXY/HTTPS_PROXY to route through the sidecar. Sidecar
-  runs mitmproxy in forward (explicit) proxy mode.
-- CA sharing via a Docker volume (sidecar generates, agent container mounts
-  read-only).
-- Docker's `--internal` flag adds host-level iptables (`DOCKER-INTERNAL`
-  chain) that DROP packets with non-subnet destination IPs. This is the
-  mandatory enforcement: even if the agent ignores HTTP_PROXY, direct
-  connections to external IPs are blocked at the host level.
-- No iptables, ip_forward, NET_ADMIN, or route manipulation needed in
-  either container. The sidecar is a plain forward proxy; `--internal` is
-  the enforcement. Massive simplification over transparent proxy approach.
-- DNS: agent doesn't need external DNS (proxy resolves hostnames from its
-  bridge interface). Docker's embedded DNS resolves container names.
-- Proxy process, policy files, and domain allowlist are in the sidecar
-  filesystem — agent cannot see, kill, or modify them.
-- `apt-get` proxy: `sudo` resets env (`env_reset`), so apt wouldn't see
-  `HTTP_PROXY`. The entrypoint writes `/etc/apt/apt.conf.d/99sandbox-proxy`
-  to make `sudo apt-get` work through the sidecar.
-- Docker subnet: uses `--subnet` with auto-assigned range to avoid collisions
-  in parallel sandbox runs.
-- **Java/Maven proxy**: the JVM ignores `HTTP_PROXY`/`HTTPS_PROXY` completely —
-  it only reads the `http.proxyHost`/`https.proxyHost` system properties. The
-  entrypoint sets those for every JVM via `JAVA_TOOL_OPTIONS`. Maven needs a
-  *second* fix: its resolver uses Apache HttpClient, which doesn't read the JVM
-  proxy properties either, so the entrypoint also overwrites the global
-  `/etc/maven/settings.xml` with a `<proxies>` block (the stock Debian file is
-  examples-only comments). `nonProxyHosts` can't take CIDR like `NO_PROXY`
-  does — it's `|`-separated globs, so the private ranges are expanded to prefix
-  wildcards.
-  - Gradle and Flyway's bundled JRE are *not* specially handled — the Gradle
-    daemon should inherit `JAVA_TOOL_OPTIONS`, and Flyway's own keystore
-    doesn't get the CA. Revisit if either turns out to matter.
+| Attack | Outcome |
+|---|---|
+| Agent ignores `HTTP_PROXY` | Blocked (network topology) |
+| Agent gains root, flushes its own iptables | No effect (enforcement is host-level) |
+| Agent kills the proxy process | Impossible (process is in the sidecar) |
+| Agent modifies the allowlist or policy addons | Impossible (files aren't in its filesystem) |
+| Domain fronting (Host ≠ SNI) | Rejected by proxy |
+| QUIC / DNS-over-TLS / raw TCP exfil | Blocked (no route out of `--internal`) |
+| Nested container egress | Routed through the sidecar like everything else |
+| `apt-get` postinst scripts | Routed through the sidecar |
 
-### Phase C — credential injection (keep secrets off the agent)  ✅ proven
-- **Credential map** (`credential-map.yaml`): declarative domain→service→env-var
-  mapping. Supports three injection modes: `github` (auto-detects API vs git
-  HTTPS), `basic_auth` (NuGet/VSTS feeds), `header` (Anthropic `x-api-key`,
-  Claude OAuth Bearer token).
-- **mitmproxy addon** (`cred-inject.py`): runs in the sidecar alongside
-  `egress-policy.py`. Reads real credentials from `SANDBOX_CRED_*` env vars
-  (present only in the sidecar), swaps placeholder tokens in outbound requests.
-  Mode-aware placeholder stripping (skips `Authorization` header values for
-  `header` mode services).
-- **Launcher plumbing** (`run-agent-sandbox.sh`): reads host credentials
-  (`gh auth token`, the Anthropic credential, NuGet PAT) and passes them to the
-  sidecar via `-e SANDBOX_CRED_*`. Agent container never sees them. The
-  Anthropic credential is selected per-agent by the wrapper via
-  `--anthropic-cred`: Claude Code uses `oauth` (Bearer token from
-  `claude-code-oauth-token.age`, exposed as `CLAUDE_DOCKER_OAUTH_TOKEN`), pi
-  uses `apikey` (x-api-key from `claude-api-token.age`). Exactly one is
-  provisioned per run — provisioning both would let the x-api-key service
-  (earlier in `credential-map.yaml`) override the OAuth Bearer, silently
-  authenticating Claude Code with the API key.
-- **Placeholder configs** (agent wrappers): the `gh` CLI placeholder token is
-  passed via the `GH_TOKEN` env var (not a `~/.config/gh/hosts.yml` mount — gh
-  tries to rewrite that file for a config-format migration, which fails against
-  a read-only mount and breaks `gh auth status`; reading from env sidesteps it).
-  Plus a git credential helper (`/opt/sandbox/git-credential-sandbox.sh`) and
-  git config overlay that return placeholder tokens. NuGet and Anthropic env
-  vars set to placeholder values. Host gitconfig credential helper sections
-  stripped via regex.
-- **Real credential mounts removed**: `~/.config/gh` (real), NuGet env var
-  (real PAT), `ANTHROPIC_API_KEY` (real), `.credentials.json` (masked with
-  empty file) no longer reach the agent container.
-- **Claude auth**: uses `CLAUDE_CODE_OAUTH_TOKEN` (not `ANTHROPIC_API_KEY`) to
-  avoid Claude Code's interactive "Detected a custom API key" prompt. The
-  sidecar injects the real Bearer token (from `claude-code-oauth-token.age`) on
-  outbound API requests. Claude Code is never given the `claude-api-token.age`
-  API key — that belongs to the pi/SDK agents.
-- **Pi wrapper** (`run-pi-sandbox.sh`): sanitises config files
-  (`settings.json`, `auth.json`) with placeholder keys before mounting. The
-  real Anthropic key is not read here — the core launcher reads it from the
-  agenix secret directly. On the host, pi's `auth.json` is rendered from that
-  same secret (the bare token) by a home-manager activation script (see
-  `users/pi/default.nix`), so the token never enters the shell environment
-  where Claude Code would pick it up.
-- git over HTTPS with token injection via credential helper → proxy swap.
-  SSH (port 22) stays default-denied unless explicitly allowed.
-- Docker registry auth (private images) deferred — requires intercepting the
-  `/v2/token` exchange flow.
-- **Not yet in credential map**: OpenAI, Google, OpenRouter API keys. These
-  get placeholder env vars in the agent so the SDK starts, but the sidecar
-  doesn't inject real values yet. Extend `credential-map.yaml` and
-  `cred-inject.py` when needed.
+## Credentials
 
-### Phase D — GitHub read-only (mitigate injection blast radius)
+Real credentials are held **only by the sidecar**, passed to it via
+`SANDBOX_CRED_*` env vars. The agent container gets `SANDBOX-PLACEHOLDER-*`
+tokens in its config files and env, and the proxy swaps them for real values on
+outbound requests. `credential-map.yaml` maps domain → service → env var and
+supports three injection modes:
+
+- `github` — auto-detects API vs git-over-HTTPS
+- `basic_auth` — NuGet/VSTS feeds
+- `header` — Anthropic `x-api-key`, Claude OAuth Bearer
+
+The agent reaches GitHub through a git credential helper
+(`/opt/sandbox/git-credential-sandbox.sh`) and `GH_TOKEN` that return
+placeholders. Host gitconfig credential-helper sections are stripped, and
+`.credentials.json` is masked with an empty file.
+
+Claude Code authenticates with `CLAUDE_CODE_OAUTH_TOKEN` rather than
+`ANTHROPIC_API_KEY`, to avoid Claude Code's interactive "Detected a custom API
+key" prompt.
+
+## GitHub is read-only
+
 GitHub is a large surface for both prompt injection (read) and exfiltration
-(write). We can't drop GitHub access without losing most of the agent's value,
-so instead of preventing injection we **bound what a hijacked agent can do** by
-making GitHub read-only in-sandbox:
+(write). Dropping GitHub access entirely would cost most of the agent's value,
+so instead the blast radius of a hijacked agent is bounded:
 
-- **Reads stay open.** GET/HEAD to any GitHub host is allowed. Reads are the
-  injection vector, but exfil *via* read is weak (an attacker can't see
-  GitHub's access logs), so locking reads down would cost ergonomics for little
-  gain.
-- **All writes are blocked.** Anything that isn't a plain read — every
-  `POST/PUT/PATCH/DELETE`, `git push` (receive-pack), and every GraphQL POST —
-  is 403'd. The one exception is git's fetch/clone path: `POST .../git-upload-pack`
-  is how smart-HTTP serves a clone/fetch, so it's a read and is allowed.
-- **Enforcement point:** `github-policy.py` runs in the sidecar between
-  `egress-policy.py` and `cred-inject.py`. A blocked write is 403'd *before*
-  `cred-inject.py` runs, and `cred-inject.py` also early-returns on an
-  already-set response — so a denied request never has a real credential minted
-  onto it (fail-closed, belt and suspenders).
-- **Known consequence (intended, not a bug):** GraphQL is always a POST, so
-  GraphQL *read* queries are blocked too. The `gh` CLI routes many commands
-  (both reads and writes) through GraphQL, so those fail in-sandbox. Use the
-  REST equivalent where one exists (a plain GET, or `gh api -X GET …`), or run
-  those workflows *outside* the sandbox. This coarseness is the point of the
-  simplification — a finer owner-scoped write policy lives on the
-  `github-write-scoping` branch if we want to revisit it.
-- **Residual risk (documented, not eliminated):** reads remain fully open, so
-  read-side exfil is still possible. This is a blast-radius control, not a wall.
-- **Tests:** `egress-test-harness.sh` §16 drives the live sidecar (repo read
-  allowed, `git ls-remote` allowed, opening an issue blocked, gist blocked,
-  GraphQL POST blocked). The write-blocked assertions fail loudly on any 2xx, so
-  a policy regression can't masquerade as a pass.
+- **Reads are open.** GET/HEAD to any GitHub host, plus GraphQL `query`
+  operations (the request body is parsed to classify them).
+- **Writes are blocked.** Every POST/PUT/PATCH/DELETE, `git push`
+  (receive-pack), and every GraphQL `mutation` is 403'd. The exception is
+  `POST .../git-upload-pack`, which is how smart-HTTP serves a clone/fetch.
 
-### Cross-cutting / carry over from the old script
-- Worktree mode, host-absolute-path mounts, Nix symlink resolution, Ctrl-Z
-  rcfile trick, build-arg version pinning — copied into the launcher (extracted
-  verbatim; not shared with the old script yet).
-- Make firewall/proxy **fail-closed and self-verifying**: assert a blocked host
-  fails AND an allowed host succeeds (the old check only tested the blocked
-  case).
-- **jj config** mounted ro from `~/.config/jj/config.toml` (no credentials in
-  it, so no sanitizing needed). Without it jj has no identity, so rewritten
-  commits get the empty identity as committer and `jj git push` refuses them.
-  Known gap: the work identity is scoped by `--when.repositories = ["~/rg"]`,
-  which can't match container paths (`~` is `/home/claude`, project mounted at
-  `/home/claude/project`), so work repos get the personal identity. Same
-  mismatch affects `~/.config/git/config`'s `includeIf "gitdir:~/rg/"`. Left as
-  is for now; fix by pinning `JJ_USER`/`JJ_EMAIL` (+ `GIT_AUTHOR_*`/
-  `GIT_COMMITTER_*`) from the host-resolved identity if it starts to bite.
+`github-policy.py` runs between `egress-policy.py` and `cred-inject.py`, so a
+blocked write is rejected *before* a real credential is ever minted onto it.
 
-## Security comparison: Phase B vs Phase B.1
+**Residual risk:** reads remain fully open, so read-side exfil is still possible.
+This is a blast-radius control, not a wall.
 
-| Attack vector | Phase B (in-container) | Phase B.1 (sidecar) |
-|---|---|---|
-| Agent ignores `HTTP_PROXY` | ✅ Blocked (iptables REDIRECT) | ✅ Blocked (network topology) |
-| Agent flushes iptables as root | ❌ **Bypasses proxy** | ✅ **No effect** (host iptables, not container) |
-| Agent kills proxy process | ❌ Risk if escalates to egressproxy uid | ✅ **Impossible** (process in sidecar) |
-| Agent modifies allowlist | ✅ File is root-owned | ✅ **File doesn't exist** in agent container |
-| Agent modifies policy addon | ✅ File is root-owned | ✅ **File doesn't exist** in agent container |
-| Root uid 0 bypass | ✅ No exemption (Phase B fix) | ✅ **N/A** (no iptables to bypass) |
-| Domain fronting | ✅ Proxy detects SNI≠Host | ✅ Same (proxy in sidecar) |
-| QUIC/DoT bypass | ✅ Blocked by iptables | ✅ Blocked by sidecar iptables |
-| Raw TCP exfil | ✅ Default-deny in OUTPUT | ✅ Default-deny in sidecar FORWARD |
-| Nested container egress | ✅ SANDBOX_FORWARD chain | ✅ Traffic routes through sidecar |
-| Postinst script (apt-get) | ✅ Root goes through proxy | ✅ Root goes through sidecar |
+## Configuration
 
-**Phase B.1 is strictly stronger**: it eliminates ALL in-container attack
-vectors. The enforcement boundary is Docker's host-level `--internal` iptables
-rules, which cannot be modified from inside any container (even with root +
-NET_ADMIN + `iptables -F`). The proxy process, policy files, and domain
-allowlist are in a separate container namespace and are unreachable.
+| file | role |
+|---|---|
+| `firewall-domains.txt` | hostname allowlist — single source of truth for egress policy |
+| `credential-map.yaml` | domain → service → env-var mapping for credential injection |
 
-## Open questions / decisions parked
-- ~~subuid/subgid handling on NixOS~~ — resolved at activation (worked out of
-  the box).
-- ~~Proxy implementation~~ — mitmproxy (batteries-included, Python addon)
-  chosen and proven. Revisit only if we ever proxy the docker socket too.
-- ~~Transparent vs forward proxy~~ — forward proxy wins. Docker `--internal`
-  networks are incompatible with transparent proxying (host iptables DROPs
-  non-subnet dests before REDIRECT). Forward proxy (HTTP_PROXY) sends CONNECT
-  to the sidecar's in-subnet IP, which Docker allows. `--internal` is the
-  mandatory enforcement: host-level, tamper-proof from inside any container.
-- Whether to also keep a body-authorizing docker-socket proxy as
-  defense-in-depth even under sysbox (probably not load-bearing once the agent
-  is unprivileged).
-- **Caveat:** nested containers don't have the MITM CA, so HTTPS from inside
-  them fails with cert errors. This is acceptable (DB containers don't make
-  outbound HTTPS; agent work happens in the outer container).
-- **Caveat:** ECH (Encrypted Client Hello) would hide SNI from the proxy.
-  These AI/API endpoints send normal SNI today; mitigate via DNS (strip ECH
-  HTTPS records) if needed later.
+Add a hostname to `firewall-domains.txt` to allow it; subdomains of listed
+domains match. Both files live in the sidecar image, so a rebuild is needed for
+changes to take effect.
 
----
+## Files
 
-## Current status: Phase A/B/B.1/C proven end to end; D simplified (re-verify pending)
+| file | role |
+|---|---|
+| `default.nix` | packages the folder into the Nix store; PATH-wraps the launchers |
+| `run-claude-sandbox.sh` | Claude wrapper — claude cmd/binary/config mounts/env |
+| `run-pi-sandbox.sh` | pi wrapper — pi binary (Nix closure), config/state mounts/env |
+| `run-agent-sandbox.sh` | generic core — worktree, build, network, sidecar, `docker run` |
+| `Dockerfile` | agent image — full `dockerd` inside, no host socket, no proxy |
+| `Dockerfile.sidecar` | sidecar image — mitmproxy forward proxy, L7 egress policy |
+| `entrypoint.sh` | in-agent: install CA, configure proxy env, start inner dockerd, run agent |
+| `sidecar-entrypoint.sh` | in-sidecar: start mitmproxy in forward mode, signal ready |
+| `egress-policy.py` | mitmproxy addon — hostname allowlist (SNI + Host), anti-fronting |
+| `github-policy.py` | mitmproxy addon — GitHub read-only enforcement |
+| `graphql_lex.py` | GraphQL operation classifier (query vs mutation) |
+| `cred-inject.py` | mitmproxy addon — credential injection (placeholder → real) |
+| `test-sandbox-egress.sh` | test wrapper — drives the core with the harness as the "agent" |
+| `egress-test-harness.sh` | in-container test suite — exercises every layer |
 
-Phases A–C validated end to end on `tachikoma` (NixOS 26.05, WSL2). Phase D was
-simplified from owner-scoped writes to GitHub read-only and needs a fresh e2e run.
+## Testing
 
-- ✅ Inner dockerd starts under sysbox-runc
-- ✅ `docker run hello-world` works nested inside the agent container
-- ✅ `default.nix` wired into `users/claude-code.nix` — `run-claude-sandbox`,
-  `run-pi-sandbox`, and `run-agent-sandbox` are on `PATH` after
-  `home-manager switch`
-- ✅ Phase B proven end to end: L7 proxy + iptables floor + no uid 0 bypass +
-  nested container egress blocked + domain fronting rejected + sudoers tightened
-- ✅ Phase B.1 proven end to end: forward proxy sidecar on Docker --internal
-  network. Direct connections (--noproxy, raw TCP) blocked by host iptables.
-  docker pull works through proxy. 42 pass, 0 fail, 1 skip.
-- ✅ Phase C proven end to end: credential injection via sidecar proxy.
-  Agent container sees only `SANDBOX-PLACEHOLDER-*` tokens. Real credentials
-  passed exclusively to sidecar via `SANDBOX_CRED_*` env vars. GitHub
-  (API + git HTTPS), Anthropic (x-api-key + Bearer), NuGet (basic auth)
-  all injected by `cred-inject.py`. `.credentials.json` masked.
-  Host gitconfig credential helpers stripped.
-- Phase D simplified to GitHub read-only (reads open; all writes blocked except
-  git fetch/upload-pack). The earlier owner-scoped write policy — which had been
-  proven end to end — is preserved on the `github-write-scoping` branch. The
-  simplified policy still needs a fresh end-to-end run on the sysbox host
-  (`egress-test-harness.sh` §16: repo read + `git ls-remote` allowed; issue,
-  gist, and GraphQL POST all 403'd).
-- ✅ `sudo apt-get` works through sidecar proxy (persistent apt proxy config).
-- ✅ No real credentials leak into the agent container (verified from inside
-  a live sandbox session).
+```
+test-sandbox-egress [--no-docker]
+```
 
-### Verified from inside the sandbox (2026-07-01)
+Drives the real launcher with `egress-test-harness.sh` bind-mounted in as the
+agent command, so the suite runs as the `claude` user inside a genuine sandbox —
+exactly the threat model being tested. `--no-docker` skips the inner-dockerd and
+nested-container tests and is considerably faster. Exit status is the failure
+count.
 
-| Test | Result |
-|------|--------|
-| Allowed domain (`api.github.com`) | ✅ HTTP 200 |
-| Allowed domain (`api.anthropic.com`) | ✅ Reachable |
-| Blocked domain (`example.com`, `evil.com`) | ✅ HTTP 403 from proxy |
-| Direct connection bypassing proxy (`--noproxy`) | ✅ Blocked (DNS fails, no route) |
-| Direct connection to external IP | ✅ Blocked (`Couldn't connect`) |
-| Raw TCP exfil | ✅ Blocked (no route out of `--internal`) |
-| External DNS (`8.8.8.8`) | ✅ Network unreachable |
-| Credential env vars | ✅ All `SANDBOX-PLACEHOLDER-*` |
-| Sidecar filesystem (`/proc/1/root/`) | ✅ Permission denied |
-| iptables manipulation | ✅ Permission denied (not root) |
-| Inner dockerd | ✅ Running (v29.6.1) |
-| Docker pull through proxy | ✅ Works |
-| Nested container egress | ✅ Blocked |
-| Privilege escalation | ✅ Only `sudo apt-get` allowed |
-| `sudo apt-get update` | ✅ Works (apt proxy config) |
-| TLS issuer on allowed hosts | ✅ mitmproxy CA (MITM working) |
+Coverage includes: allowed/blocked hosts, subdomain matching, direct-connection
+and raw-TCP bypass attempts, proxy CA trust (curl/python/java), Java and Maven
+proxy configuration, sidecar unreachability, root-escalation and iptables-flush
+resilience, inner dockerd, nested container egress, credential placeholders, and
+the GitHub read-only policy.
 
-### Next steps
+One test reports as skipped by design: **domain fronting** needs DNS resolution
+from the agent container, which the `--internal` network doesn't provide. The
+anti-fronting check itself is live in `egress-policy.py`; only the in-container
+driver for it can't run.
 
-- **Extend credential map** for additional providers (OpenAI, Google,
-  OpenRouter) when those agents/models are used in the sandbox.
-- **Docker registry auth** for private images — requires intercepting the
-  `/v2/token` exchange flow.
-- **Registry pull-through mirror** (`registry:2` +
-  `REGISTRY_PROXY_REMOTEURL`) for warm caches without sharing storage
-  across parallel agents.
-- **Cut over** from `utils/run-claude-docker.sh` (the daily driver) to the
-  sandbox launchers once the sandbox has enough mileage.
-- **Nested container HTTPS**: inner containers don't have the MITM CA,
-  so HTTPS from inside them fails. Acceptable today (DB containers don't
-  make outbound HTTPS), but could be addressed by injecting the CA into
-  the inner dockerd's default build args or a volume mount.
+## Tool-specific notes
 
----
+Most tools pick up `HTTP_PROXY`/`HTTPS_PROXY` and the CA from the standard env
+vars (`SSL_CERT_FILE`, `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`,
+`NODE_EXTRA_CA_CERTS`). These ones need special handling, all done by
+`entrypoint.sh`:
 
-## Sysbox enablement (history & provenance)
+- **apt** — `sudo` resets the environment (`env_reset`), so `sudo apt-get`
+  never sees `HTTP_PROXY`. A persistent `/etc/apt/apt.conf.d/99sandbox-proxy`
+  is written instead.
+- **Java** — the JVM ignores `HTTP_PROXY`/`HTTPS_PROXY` entirely; it only reads
+  the `http.proxyHost`/`https.proxyHost` system properties. Set for every JVM
+  via `JAVA_TOOL_OPTIONS`. Note this makes every JVM print `Picked up
+  JAVA_TOOL_OPTIONS: ...` on startup.
+- **Maven** — needs a *second* fix: its resolver uses Apache HttpClient, which
+  doesn't read the JVM proxy properties either. The global
+  `/etc/maven/settings.xml` is overwritten with a `<proxies>` block. Note that
+  `nonProxyHosts` can't take CIDR the way `NO_PROXY` does — it's `|`-separated
+  globs, so the private ranges are expanded to prefix wildcards.
+- **inner dockerd** — gets proxy config via
+  `/etc/systemd/system/docker.service.d/proxy.conf` so registry pulls route
+  through the sidecar.
 
-Validated on `tachikoma` (NixOS 26.05, WSL2, kernel 6.18). This was the
-enabling prerequisite for the whole sandbox design and is now **proven end to
-end**: `docker run --runtime=sysbox-runc docker:dind` starts an inner dockerd,
-`docker run hello-world` works nested inside, and the outer container is
-unprivileged with real UID remapping (host `/proc/<pid>/uid_map` shows
-container uid 0 → a high host subuid).
+## Limitations
 
-### Environment prerequisites (validated)
-systemd PID 1 ✓, real Docker Engine ✓, idmapped mounts (`idmap.enabled: true`,
-so shiftfs not needed) ✓, FUSE ✓, unprivileged userns ✓, cgroup v2 ✓,
-`.wslconfig` not in `networkingMode=mirrored` (the one known WSL breaker) ✓.
+- **Nested containers have no CA.** Containers started by the inner dockerd
+  don't get the MITM CA, so outbound HTTPS from inside them fails with cert
+  errors. Fine for the common case (test databases don't make outbound HTTPS);
+  agent work happens in the outer container.
+- **Private Docker registries don't work.** Registry auth needs the `/v2/token`
+  exchange flow intercepted, which `cred-inject.py` doesn't do yet.
+- **GraphQL classification is coarse by design.** Reads are allowed and
+  mutations blocked, but any `gh` command routing a *write* through GraphQL
+  fails in-sandbox. Use the REST equivalent (`gh api -X GET …`) or run those
+  workflows outside the sandbox.
+- **No OpenAI/Google/OpenRouter credential injection.** Those keys get
+  placeholder env vars so an SDK will start, but the sidecar doesn't inject real
+  values. Extend `credential-map.yaml` and `cred-inject.py` when needed.
+- **jj/git identity is the personal one in work repos.** The work identity is
+  scoped by `--when.repositories = ["~/rg"]`, which can't match container paths
+  (the project is mounted at `/home/claude/project`). Same mismatch affects
+  `~/.config/git/config`'s `includeIf "gitdir:~/rg/"`. Fix by pinning
+  `JJ_USER`/`JJ_EMAIL` (+ `GIT_AUTHOR_*`/`GIT_COMMITTER_*`) if it starts to bite.
+- **Gradle and Flyway aren't specially configured.** The Gradle daemon should
+  inherit `JAVA_TOOL_OPTIONS`, and Flyway's bundled JRE has its own keystore
+  that doesn't receive the CA. Neither is confirmed working.
+- **ECH would hide SNI from the proxy.** Current endpoints send normal SNI; if
+  that changes, mitigate via DNS (stripping ECH HTTPS records).
 
-### Vendoring
-`polferov/sysbox-nix` @ `09799d4` (2026-05-31) vendored into
-`system/sysbox-nix/` (MIT LICENSE kept, `.nix` files byte-for-byte, flake
-plumbing removed for direct-import integration). Builds sysbox from pinned
-`nestybox/sysbox` source via content hashes (tamper-evident). Integrated into
-`tachikoma` via Option B (direct import) with `lib.mkForce` on the
-inotify/pid_max sysctls to resolve priority ties with nixpkgs defaults.
+## Host requirements
 
-### Hard-won fixes (the path to "proven end to end")
-1. **Docker version skew → pinned Docker 29.4.3.** sysbox 0.6.7/0.7.0 break on
-   Docker 29.5 (private `time` namespace injection — moby#52326,
-   nestybox/sysbox#1011; plus changed stdio/console handling). 29.4.3 is the
-   last known-good. Sourced from a dedicated pinned input `nixpkgs-docker`
-   @ `8e4a6e1b8b11` (does *not* follow nixpkgs). **Revisit** when upstream
-   sysbox supports 29.5+ → drop the input.
-2. **Bumped vendored sysbox 0.6.7 → 0.7.0** — 0.7.0's openat2 trapping got past
-   a silent nsenter init abort on kernel 6.18.
-3. **sysbox-fs FUSE3** — 0.7.0 calls `fusermount3`; fixed `pkgs.fuse` →
-   `pkgs.fuse3` on the service PATH.
-4. **nsexec oom_score_adj patch** — nsexec unconditionally writes
-   `oom_score_adj` (a kill-priority hint), which fails EACCES under sysbox's
-   userns on this kernel and aborts container start. Patched to warn-and-
-   continue. **Gotcha (cost hours):** the fix must target the **vendored** runc
-   copy (`vendor/.../runc/libcontainer/nsenter/nsexec.c`) that cgo actually
-   compiles — *not* sysbox-runc's own `libcontainer/nsenter` tree (dead code).
-   Applied via `postConfigure` `substituteInPlace --replace-fail` (self-
-   verifying).
+Runs on `tachikoma` (NixOS 26.05, WSL2, kernel 6.18). Requirements: systemd as
+PID 1, real Docker Engine, idmapped mounts or shiftfs, FUSE, unprivileged
+userns, cgroup v2, and — on WSL — `.wslconfig` **not** set to
+`networkingMode=mirrored`, which breaks sysbox.
 
-### Commits (sysbox enablement)
-- `1d21069` vendor polferov/sysbox-nix for review
-- `ca248f2` integrate vendored sysbox into tachikoma (Option B)
-- pin Docker 29.4.3 via dedicated `nixpkgs-docker` input
-- bump vendored sysbox 0.6.7 → 0.7.0
-- `sysbox-fs`: fuse3 (fusermount3) on service PATH
-- `sysbox-runc`: oom-nonfatal patch on the vendored runc nsexec
+Sysbox is enabled declaratively via the vendored `system/sysbox-nix/`
+(`virtualisation.sysbox.enable = true`), built from pinned upstream source via
+content hashes.
+
+**Docker is pinned to 29.4.3** via a dedicated `nixpkgs-docker` flake input that
+deliberately does *not* follow `nixpkgs`. Sysbox 0.6.7/0.7.0 break on Docker
+29.5 (private `time` namespace injection — moby#52326, nestybox/sysbox#1011,
+plus changed stdio/console handling). Revisit when upstream sysbox supports
+29.5+, then drop the input.
+
+The launcher fails fast with a clear message if the `sysbox-runc` runtime isn't
+registered.
