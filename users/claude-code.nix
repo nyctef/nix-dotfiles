@@ -7,19 +7,19 @@
 }:
 
 let
-  run-claude-docker = import ../utils/run-claude-docker.nix { inherit pkgs; };
   run-agent-sandbox = import ../utils/agent-sandbox/default.nix { inherit pkgs; };
   waitcat = import ../utils/waitcat.nix { inherit pkgs; };
 
-  # A dedicated, long-lived OAuth token for Claude running inside the docker
-  # wrapper (run-claude-docker.sh). Produced once on the host with
+  # A dedicated, long-lived OAuth token for Claude running inside the agent
+  # sandbox. Produced once on the host with
   #   `claude setup-token`
   # then stored encrypted with
   #   `cd ~/.dotfiles && agenix -e secrets/claude-code-oauth-token.age`
   # Guarded by pathExists so the config still evaluates before the secret is
   # created. Exposed as CLAUDE_DOCKER_OAUTH_TOKEN (NOT CLAUDE_CODE_OAUTH_TOKEN)
   # so the host's own Claude keeps using its full-scope interactive login; the
-  # docker wrapper maps this var to CLAUDE_CODE_OAUTH_TOKEN inside the container.
+  # sandbox passes this var to the sidecar, which injects the real Bearer token
+  # on outbound requests to api.anthropic.com.
   oauthTokenSecret = ../secrets/claude-code-oauth-token.age;
   hasOauthToken = builtins.pathExists oauthTokenSecret;
 
@@ -80,7 +80,6 @@ in
       csharp-ls
       jq
       socat
-      run-claude-docker
       run-agent-sandbox
     ];
 

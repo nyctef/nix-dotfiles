@@ -197,8 +197,17 @@ if ! docker info >/dev/null 2>&1; then
 fi
 
 # ---------- 6. drop privileges and launch the agent ----------
-# See run-claude-docker.sh for the full explanation of why `bash -c` can't
-# support Ctrl-Z and the rcfile/PROMPT_COMMAND trick is needed.
+# We need a real interactive bash with an active prompt loop so that Ctrl-Z
+# suspends the agent and drops to a shell (fg to resume).
+#
+# Why `bash -c` doesn't work (even with -i or set -m): it executes the command
+# string and exits — there is no read-eval-print loop. When the child is
+# stopped by SIGTSTP, bash has no prompt to return to, so it just exits, taking
+# the container with it.
+#
+# Instead: start a real interactive bash via --rcfile, whose PROMPT_COMMAND
+# launches the agent exactly once at the first prompt — by which point job
+# control is active. Ctrl-Z then works normally.
 
 AGENT_CMD="${SANDBOX_AGENT_CMD:?SANDBOX_AGENT_CMD not set by the launcher}"
 
