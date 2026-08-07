@@ -273,6 +273,65 @@ else
     fail "HTTPS_PROXY not set"
 fi
 
+# ── 8b. Java / Maven proxy + CA ──────────────────────────────────────────────
+# The JVM ignores HTTP_PROXY/HTTPS_PROXY entirely, and Maven's resolver ignores
+# even the JVM proxy system properties — so both need their own config. These
+# tests are the only thing that catches a regression there.
+
+section "Java / Maven (proxy env is not enough — needs system properties)"
+
+if [[ -n "${JAVA_TOOL_OPTIONS:-}" && "$JAVA_TOOL_OPTIONS" == *"https.proxyHost"* ]]; then
+    pass "JAVA_TOOL_OPTIONS carries proxy system properties"
+else
+    fail "JAVA_TOOL_OPTIONS missing https.proxyHost (JVMs will bypass the proxy)"
+fi
+
+if command -v java &>/dev/null; then
+    JAVA_TEST_SRC="$(mktemp -d)/ProxyProbe.java"
+    cat > "$JAVA_TEST_SRC" <<'JAVAEOF'
+import java.net.*;
+public class ProxyProbe {
+    public static void main(String[] a) throws Exception {
+        HttpURLConnection c = (HttpURLConnection)
+            new URL("https://repo.maven.apache.org/maven2/").openConnection();
+        c.setConnectTimeout(10000);
+        c.setReadTimeout(15000);
+        System.out.println(c.getResponseCode());
+    }
+}
+JAVAEOF
+    if java "$JAVA_TEST_SRC" >/dev/null 2>&1; then
+        pass "java HttpURLConnection reaches Maven Central (proxy + CA trusted)"
+    else
+        fail "java HttpURLConnection failed — check JAVA_TOOL_OPTIONS and the JDK cacerts import"
+    fi
+    rm -rf "$(dirname "$JAVA_TEST_SRC")"
+else
+    skip "java HTTPS probe — java not available"
+fi
+
+if command -v mvn &>/dev/null; then
+    if grep -q '<proxy>' /etc/maven/settings.xml 2>/dev/null; then
+        pass "Maven global settings.xml has a <proxy> block"
+    else
+        fail "Maven global settings.xml has no <proxy> block (mvn will hang/fail on downloads)"
+    fi
+
+    # The real end-to-end check: resolve a tiny artifact from Maven Central.
+    MVN_LOG="$(mktemp)"
+    if timeout 180 mvn -B -q \
+        org.apache.maven.plugins:maven-dependency-plugin:3.6.1:get \
+        -Dartifact=org.apache.commons:commons-lang3:3.14.0 \
+        >"$MVN_LOG" 2>&1; then
+        pass "mvn dependency:get resolves from Maven Central through the proxy"
+    else
+        fail "mvn dependency:get failed (log tail: $(tail -n 3 "$MVN_LOG" | tr '\n' ' '))"
+    fi
+    rm -f "$MVN_LOG"
+else
+    skip "mvn dependency resolution — mvn not available"
+fi
+
 # ── 9. Privilege separation (sidecar isolation) ─────────────────────────────
 
 section "Privilege separation (sidecar proxy is unreachable)"

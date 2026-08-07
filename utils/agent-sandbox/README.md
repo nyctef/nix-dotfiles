@@ -160,6 +160,18 @@ trick) — we don't refactor the old script to share code yet.
   to make `sudo apt-get` work through the sidecar.
 - Docker subnet: uses `--subnet` with auto-assigned range to avoid collisions
   in parallel sandbox runs.
+- **Java/Maven proxy**: the JVM ignores `HTTP_PROXY`/`HTTPS_PROXY` completely —
+  it only reads the `http.proxyHost`/`https.proxyHost` system properties. The
+  entrypoint sets those for every JVM via `JAVA_TOOL_OPTIONS`. Maven needs a
+  *second* fix: its resolver uses Apache HttpClient, which doesn't read the JVM
+  proxy properties either, so the entrypoint also overwrites the global
+  `/etc/maven/settings.xml` with a `<proxies>` block (the stock Debian file is
+  examples-only comments). `nonProxyHosts` can't take CIDR like `NO_PROXY`
+  does — it's `|`-separated globs, so the private ranges are expanded to prefix
+  wildcards.
+  - Gradle and Flyway's bundled JRE are *not* specially handled — the Gradle
+    daemon should inherit `JAVA_TOOL_OPTIONS`, and Flyway's own keystore
+    doesn't get the CA. Revisit if either turns out to matter.
 
 ### Phase C — credential injection (keep secrets off the agent)  ✅ proven
 - **Credential map** (`credential-map.yaml`): declarative domain→service→env-var
