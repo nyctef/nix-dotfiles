@@ -40,6 +40,8 @@ log = 'zzzz | (visible_heads() & committer_date(after:"1 month ago")) | trunk().
 [aliases]
 tug = ["bookmark", "advance", "--to", "@-"]
 nt = ["util", "exec", "--", "bash", "-c", "jj git fetch && jj new 'trunk()'", "_"]
+# abandon any change which is mutable but not included in a bookmark or tag or current checkout
+decruft = ["abandon", "-r", "mutable() ~ ::(bookmarks() | remote_bookmarks() | tags() | @)"]
 # Usage: jj splice <source> <dest>
 # Rebases <source>..@- after <dest>, then advances <dest> bookmark to just before <source>
 splice = [
