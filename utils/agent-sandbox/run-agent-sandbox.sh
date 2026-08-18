@@ -31,10 +31,10 @@ set -euo pipefail
 #                       after `--` is appended to it.
 #   --mount <spec>      Extra bind mount; repeatable. <spec> = <mode>:<host>:
 #                       <container>, mode = ro|rw. The host path is resolved
-#                       (readlink -f) and Nix-store symlinks beneath it are
-#                       expanded, so dotfiles symlinked into /nix/store still
-#                       resolve inside the container. Missing host paths are
-#                       silently skipped.
+#                       (readlink -f). Symlinks *beneath* it are not followed —
+#                       Home Manager dotfiles point into /nix/store, which is
+#                       mounted ro (see "Nix store" below). Missing host paths
+#                       are silently skipped.
 #   --env <NAME=VALUE>  Extra env var passed into the container; repeatable.
 #   --worktree <name>   Branch a git worktree from HEAD and mount it as the
 #                       working dir (main repo mounted ro alongside).
@@ -176,33 +176,12 @@ docker build \
 
 OPTIONAL_MOUNTS=()
 
-# Nix/Home Manager dotfiles are symlinks into /nix/store, which doesn't exist
-# in the container. For each bind-mounted dir, resolve symlinks whose targets
-# fall outside the dir and add individual file mounts at the dereferenced path.
-resolve_external_symlinks() {
-    local host_dir="${1%/}" container_dir="${2%/}" mode="$3"
-    local real_host_dir
-    real_host_dir="$(readlink -f "$host_dir")"
-    while IFS= read -r -d '' link; do
-        local target
-        target="$(readlink -f "$link")" || continue
-        [[ "$target" == "$real_host_dir"/* ]] && continue
-        local rel="${link#"$host_dir"/}"
-        OPTIONAL_MOUNTS+=(-v "${target}:${container_dir}/${rel}:${mode}")
-    done < <(find "$host_dir" -maxdepth 4 -type l -print0 2>/dev/null)
-}
-
 add_mount() {
     local mode="$1" src="$2" dst="$3"
     local resolved
     resolved="$(readlink -f "$src" 2>/dev/null)" || resolved="$src"
     if [[ -e "$resolved" ]]; then
         OPTIONAL_MOUNTS+=(-v "${resolved}:${dst}:${mode}")
-        # Skip symlink resolution for /nix/store — we mount the whole thing,
-        # and scanning it is extremely slow (thousands of entries).
-        if [[ -d "$resolved" && "$resolved" != "/nix/store" ]]; then
-            resolve_external_symlinks "$src" "$dst" "$mode"
-        fi
     fi
 }
 
@@ -226,6 +205,16 @@ else
     echo "  WARN: $_JJ_CONFIG not found" >&2
 fi
 unset _JJ_CONFIG
+
+# jj keeps per-repo config outside the repo, at
+# ~/.config/jj/repos/<hash>/config.toml, and symlinks .jj/repo/config.toml to it.
+# Mounted at its host path so those symlinks resolve inside the container for
+# any repo — including the project dir, which isn't a --mount spec.
+_JJ_REPOS="${XDG_CONFIG_HOME:-$HOME/.config}/jj/repos"
+if [[ -d "$_JJ_REPOS" ]]; then
+    add_mount ro "$_JJ_REPOS" "$_JJ_REPOS"
+fi
+unset _JJ_REPOS
 
 # ---------- assemble env from --env specs ----------
 
@@ -452,6 +441,29 @@ else
     CA_MOUNT=()
 fi
 
+# ---------- Nix store ----------
+# Two things need the store: Home Manager dotfiles (CLAUDE.md, skills, jj/git
+# config, ...) are symlinks into it, and Nix-wrapped agents like pi have shims
+# with hard-coded store paths for their whole closure. Zero-copy bind mount.
+#
+# Mounting the whole store ro — rather than each resolved symlink target
+# individually — is what makes the dotfiles survive a `home-manager switch`
+# mid-run: a rebuild repoints the host symlinks at a *new* store path, which a
+# live store mount exposes immediately, whereas per-file mounts are fixed at
+# launch and leave the symlink dangling until the sandbox restarts.
+#
+# Trade-off: the agent can read (and execute) everything in the host store, not
+# just the toolchain baked into the image. Acceptable because the store is
+# world-readable on the host by design and holds no live credentials — agenix
+# secrets sit in the store only as ciphertext, and decrypt to
+# $XDG_RUNTIME_DIR/agenix (tmpfs, never mounted into the agent). Egress is
+# unaffected: the sidecar enforces at the network layer, so extra binaries
+# cannot route around it.
+NIX_STORE_MOUNT=()
+if [[ -d /nix/store ]]; then
+    NIX_STORE_MOUNT=(-v "/nix/store:/nix/store:ro")
+fi
+
 # ---------- run ----------
 
 echo ""
@@ -462,6 +474,9 @@ echo "  Worktree     : $WORKTREE_NAME (branch from $(git -C "$HOST_REPO_DIR" rev
 echo "  Main repo    : $HOST_REPO_DIR (mounted ro)"
 fi
 echo "  Runtime      : $DOCKER_RUNTIME (inner dockerd, no host socket)"
+if [[ ${#NIX_STORE_MOUNT[@]} -gt 0 ]]; then
+echo "  Nix store    : /nix/store (ro, for Home Manager dotfile symlinks)"
+fi
 if [[ "$FIREWALL_DISABLED" != "1" ]]; then
 echo "  Egress       : sidecar proxy ($SIDECAR_NAME) on $INTERNAL_NET (--internal)"
 echo "  Proxy URL    : $PROXY_URL"
@@ -496,6 +511,9 @@ docker run \
     \
     `# ---- CA from sidecar: shared via Docker volume ----` \
     ${CA_MOUNT[@]+"${CA_MOUNT[@]}"} \
+    \
+    `# ---- Nix store (ro): Home Manager dotfile symlink targets ----` \
+    ${NIX_STORE_MOUNT[@]+"${NIX_STORE_MOUNT[@]}"} \
     \
     `# ---- Project / worktree mounts ----` \
     "${PROJECT_MOUNTS[@]}" \

@@ -9,8 +9,8 @@ set -euo pipefail
 #
 # Unlike the Claude binary (a single ELF), pi is a Nix-wrapped Node.js app
 # whose bash shims contain hard-coded /nix/store/ paths (node, fd, ripgrep,
-# etc.). We mount the entire /nix/store read-only so the full closure is
-# available inside the container. This is a zero-copy bind mount.
+# etc.). Those resolve because the generic core mounts the whole store ro; pi
+# needs no store mount of its own.
 #
 # Usage: run-pi-sandbox.sh [--worktree <name>] [pi args...]
 #   Run from any project directory — it mounts $PWD as the working dir.
@@ -157,9 +157,6 @@ trap cleanup_pi EXIT
 # The container user is still 'claude' (generalising is deferred per README).
 
 MOUNTS=(
-    # Mount the entire /nix/store so pi's full closure (node, fd, ripgrep, etc.)
-    # is available. This is a zero-copy bind mount.
-    --mount "ro:/nix/store:/nix/store"
     # Pi config and state — rw because pi writes sessions, settings.
     # The directory itself is mounted rw (pi writes sessions), but auth files
     # are masked with sanitized copies containing placeholder keys.

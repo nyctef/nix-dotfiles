@@ -34,8 +34,9 @@ run-agent-sandbox --agent-cmd <cmd> [options] [-- agent args...]
   --agent-cmd <cmd>        Command to run as the agent (required).
   --mount <mode>:<host>:<container>
                            Extra bind mount; repeatable. mode = ro|rw. Host
-                           paths are resolved and Nix-store symlinks beneath
-                           them expanded. Missing host paths are skipped.
+                           paths are resolved (readlink -f); symlinks beneath
+                           them are not followed, since /nix/store is mounted
+                           ro. Missing host paths are skipped.
   --env <NAME=VALUE>       Extra env var; repeatable.
   --worktree <name>        As above.
   --anthropic-cred <kind>  Which Anthropic credential the sidecar provisions:
@@ -102,6 +103,16 @@ above follows from that:
   IPs), to avoid CDN/shared-IP leaks and domain fronting. The proxy rejects
   requests where the Host header disagrees with the SNI.
 - Real credentials never enter the agent container.
+- **`/nix/store` is mounted read-only** so Home Manager dotfiles (`CLAUDE.md`,
+  skills, jj/git config) resolve — they are symlinks into the store, and a live
+  mount is what keeps them working when a `home-manager switch` mid-run
+  repoints them at a fresh store path. Nix-wrapped agents such as pi need it
+  too, for their closure. The agent can therefore read and execute anything in
+  the host store, not just the toolchain baked into the image. This is
+  deliberate: the store is world-readable on the host by design and holds no
+  live credentials (agenix secrets exist there only as ciphertext and decrypt to
+  `$XDG_RUNTIME_DIR/agenix` on tmpfs, which is never mounted into the agent).
+  Extra binaries buy no egress — the sidecar enforces at the network layer.
 
 | Attack | Outcome |
 |---|---|
