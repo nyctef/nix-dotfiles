@@ -73,6 +73,7 @@ ghcr.io
 # external list rather than just reading a static file, which isn't wired up
 # yet.
 *productionresultssa*.blob.core.windows.net
+results-receiver.actions.githubusercontent.com
 
 # ---- Ubuntu / system packages ----
 archive.ubuntu.com
