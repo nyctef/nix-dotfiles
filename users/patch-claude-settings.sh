@@ -31,6 +31,7 @@ DECLARATIVE_SETTINGS='
   },
   "respondToBashCommands": false,
   "disableAgentView": true,
+  "disableClaudeAiConnectors": true,
   "hooks": {
     "Notification": [
       {
