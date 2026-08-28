@@ -102,3 +102,6 @@ download.visualstudio.microsoft.com
 aka.ms
 mcr.microsoft.com
 *.data.mcr.microsoft.com
+
+# ---- License metadata ----
+clearlydefined.io
