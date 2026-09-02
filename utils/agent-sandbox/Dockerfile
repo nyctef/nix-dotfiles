@@ -15,6 +15,7 @@
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Europe/London
 
 # Trust anchor for the HTTPS third-party repos added below.
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
@@ -60,7 +61,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         docker-compose-plugin \
         default-jdk-headless \
         maven \
-        powershell
+        powershell \
+        tzdata
+
+# TZ env var alone doesn't affect tools that read /etc/localtime (e.g. `date`
+# in a plain shell), so symlink it explicitly too.
+RUN ln -sf /usr/share/zoneinfo/Europe/London /etc/localtime && \
+    echo "Europe/London" > /etc/timezone && \
+    dpkg-reconfigure -f noninteractive tzdata
 
 # Non-root user matching the host UID (1000). Ubuntu 24.04 ships a 'ubuntu'
 # user at 1000; remove it so we can take that UID. Add claude to the docker
