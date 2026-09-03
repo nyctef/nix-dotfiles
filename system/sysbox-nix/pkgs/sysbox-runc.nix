@@ -13,7 +13,7 @@ buildGoModule {
   inherit (common) version src ldflags;
 
   modRoot = "sysbox-runc";
-  vendorHash = "sha256-e2RxH1XPyaTpwMmxnBSPwd8+qWjZD92BEk58kfMlFPU=";
+  vendorHash = "sha256-HeqJrSOZl/aBLr0rSm8dDKpOKrgCNL0mgVfHbcxFW6w=";
   proxyVendor = false;
 
   # oom_score_adj is only an OOM-kill priority hint, but on this kernel the
