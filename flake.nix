@@ -54,6 +54,7 @@
 
         overlays = [
           (import ./overlays/dotnet.nix)
+          (import ./overlays/jujutsu.nix)
         ];
       };
 
@@ -61,11 +62,17 @@
     in
     {
 
-      # Buildable handle for the vendored sysbox package, using the same `pkgs`
-      # (and Go toolchain) the NixOS module builds it with — so vendorHashes
-      # computed here match. Build with `--keep-going` to surface all three
-      # component vendorHashes in one run. Safe to keep around for iteration.
-      packages.${system}.sysbox = pkgs.callPackage ./system/sysbox-nix/pkgs { };
+      packages.${system} = {
+        # Buildable handle for the vendored sysbox package, using the same `pkgs`
+        # (and Go toolchain) the NixOS module builds it with — so vendorHashes
+        # computed here match. Build with `--keep-going` to surface all three
+        # component vendorHashes in one run. Safe to keep around for iteration.
+        sysbox = pkgs.callPackage ./system/sysbox-nix/pkgs { };
+
+        # Buildable handle for the overlaid jujutsu (see overlays/jujutsu.nix), so
+        # the cargo vendor hash can be refreshed with a plain `nix build .#jujutsu`.
+        jujutsu = pkgs.jujutsu;
+      };
 
       homeConfigurations = {
         "nixos@tachikoma" = home-manager.lib.homeManagerConfiguration {
