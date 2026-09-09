@@ -42,12 +42,15 @@ red-gate.pkgs.visualstudio.com
 pypi.org
 files.pythonhosted.org
 
-# ---- Docker Hub ----
+# ---- Docker ----
 registry-1.docker.io
 auth.docker.io
 production.cloudflare.docker.com
 production.cloudfront.docker.com
 download.docker.com
+container-registry.oracle.com
+mcr.microsoft.com
+*.data.mcr.microsoft.com
 
 # ---- GitHub ----
 github.com
@@ -100,8 +103,6 @@ dotnet.microsoft.com
 dot.net
 download.visualstudio.microsoft.com
 aka.ms
-mcr.microsoft.com
-*.data.mcr.microsoft.com
 
 # ---- License metadata ----
 clearlydefined.io
