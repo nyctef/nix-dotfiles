@@ -10,6 +10,7 @@
 - if on a detached HEAD then stay there. only create or switch branches when told to.
 - when executing tests or other long-running commands, prefer to pipe the output to a temporary file and analyze it separately, instead of piping to grep or tail directly. This avoids having to re-run the command when more details are needed.
 - if you find yourself reverse-engineering a dll to inspect its behavior, or webfetching individual pages on github.com to inspect source code, then prefer to grab a local clone of the repo instead and inspect the code that way. This applies to both public and private repos.
+- be careful not to add BOMs to files. avoid 'utf-8-sig' for writes in scripts.
 
 ## When writing code comments
 - Avoid adding comments which just narrate the diff or refer to specific jargon within the agent session.
