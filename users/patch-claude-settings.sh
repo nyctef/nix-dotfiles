@@ -29,6 +29,10 @@ DECLARATIVE_SETTINGS='
   "enabledPlugins": {
     "csharp-lsp@claude-plugins-official": false
   },
+  "attribution": {
+    "commit": "Co-Authored-By: Claude <noreply@anthropic.com>",
+    "pr": ""
+  },
   "respondToBashCommands": false,
   "disableAgentView": true,
   "disableClaudeAiConnectors": true,
