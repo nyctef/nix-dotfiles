@@ -59,6 +59,13 @@
   # https://github.com/nix-community/nix-ld
   programs.nix-ld.enable = true;
 
+  # store /tmp in RAM. this isn't on by default in nixos because
+  # large builds dump a ton of intermediate build artifacts into
+  # /tmp, so this could cause builds to fail. if that's a problem
+  # then setting nix.settings.build-dir to point the build stuff
+  # somewhere else (eg /var/tmp) should work around that problem
+  boot.tmp.useTmpfs = true;
+
   # This value determines the NixOS release from which the default
   # settings for stateful data, like file locations and database versions
   # on your system were taken. It's perfectly fine and recommended to leave
