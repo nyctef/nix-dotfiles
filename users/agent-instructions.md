@@ -11,7 +11,8 @@
 - if you find yourself reverse-engineering a dll to inspect its behavior, or webfetching individual pages on github.com to inspect source code, then prefer to grab a local clone of the repo instead and inspect the code that way. This applies to both public and private repos.
 - be careful not to add BOMs to files. avoid 'utf-8-sig' for writes in scripts.
 
-## When writing code comments
+## When writing code comments or docs
 - Avoid adding comments which just narrate the diff or refer to specific jargon within the agent session.
 - Do include comments if the resulting state is strange or non-obvious.
 - Add comments next to the relevant sections of code. Avoid describing the behavior of other components in a comment.
+- Write comments and docs as if there was never a "before" — describe current behavior, not what changed or why it's now better/fixed/improved. If a sentence would only make sense to someone who just watched the diff happen, rewrite it as a plain statement of fact instead.
