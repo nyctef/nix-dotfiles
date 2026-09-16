@@ -107,12 +107,19 @@ RUN JJ_VERSION="0.40.0" && \
     chmod +x /usr/local/bin/jj && \
     rm /tmp/jj.tar.gz
 
-# Sudo for claude — apt-get only (so the agent can install extras at runtime).
-# Deliberately excludes dpkg (direct .deb install → attacker-controlled postinst
-# runs as root) and apt (has features like edit-sources that are too broad).
-# Even with this, `apt-get install` postinst scripts run as root, but root
-# traffic goes through the sidecar proxy too, so the exfiltration path is still
-# blocked.
+# Sudo for claude — apt-get, so the agent can install extras at runtime.
+#
+# This is NOT a privilege boundary. Unrestricted apt-get arguments are root:
+# `-o APT::Update::Pre-Invoke::=/bin/sh`, `apt-get install ./any.deb` (runs
+# the package's postinst), or the pager from `apt-get changelog`. Listing only
+# apt-get rather than dpkg/apt is hygiene against accidental misuse, not a
+# barrier. The docker group already makes claude root-equivalent inside the
+# container anyway (`docker run -v /:/host --privileged ...`).
+#
+# The real boundaries are outside this process: sysbox remaps container uid 0
+# to an unprivileged host subuid, the --internal network plus sidecar proxy
+# enforce egress regardless of uid, and real credentials only exist in the
+# sidecar. Container root gains nothing it can exfiltrate or escape with.
 RUN echo "claude ALL=(ALL) NOPASSWD: /usr/bin/apt-get" \
     > /etc/sudoers.d/claude && \
     chmod 0440 /etc/sudoers.d/claude

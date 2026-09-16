@@ -124,6 +124,7 @@ above follows from that:
 | QUIC / DNS-over-TLS / raw TCP exfil | Blocked (no route out of `--internal`) |
 | Nested container egress | Routed through the sidecar like everything else |
 | `apt-get` postinst scripts | Routed through the sidecar |
+| Agent gets container root (via `sudo apt-get -o ...` or the docker group) | Expected; root is still an unprivileged host subuid, egress and credentials are unaffected |
 
 ## Credentials
 
