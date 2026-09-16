@@ -355,23 +355,23 @@ else
     pass "/opt/egress-policy.py not present (in sidecar only)"
 fi
 
-# sudo restrictions
-if sudo -n dpkg --version 2>/dev/null; then
-    fail "claude can sudo dpkg"
+# sudo: full passwordless root inside the container, with proxy env preserved.
+if sudo -n true 2>/dev/null; then
+    pass "sudo -n works for claude user"
 else
-    pass "sudo dpkg denied for claude user"
+    fail "sudo -n denied (agent needs unrestricted sudo)"
 fi
 
-if sudo -n apt-get --version >/dev/null 2>&1; then
-    pass "sudo apt-get allowed (expected)"
+if [[ -n "${HTTPS_PROXY:-}" && "$(sudo -n printenv HTTPS_PROXY 2>/dev/null)" == "$HTTPS_PROXY" ]]; then
+    pass "HTTPS_PROXY survives sudo (env_reset disabled)"
 else
-    fail "sudo apt-get denied (agent needs this)"
+    fail "HTTPS_PROXY lost under sudo: sudo curl/pip would fail to reach the network"
 fi
 
-if sudo -n bash -c 'whoami' 2>/dev/null | grep -q root; then
-    fail "claude can sudo to root shell (CRITICAL)"
+if sudo -n curl -s --max-time 5 https://example.com >/dev/null 2>&1; then
+    fail "root (via sudo) reached blocked host example.com (bypass!)"
 else
-    pass "sudo root shell denied for claude user"
+    pass "root (via sudo) blocked from example.com"
 fi
 
 # ── 10. Root escalation via nested container ────────────────────────────────

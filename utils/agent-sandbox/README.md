@@ -124,7 +124,7 @@ above follows from that:
 | QUIC / DNS-over-TLS / raw TCP exfil | Blocked (no route out of `--internal`) |
 | Nested container egress | Routed through the sidecar like everything else |
 | `apt-get` postinst scripts | Routed through the sidecar |
-| Agent gets container root (via `sudo apt-get -o ...` or the docker group) | Expected; root is still an unprivileged host subuid, egress and credentials are unaffected |
+| Agent uses `sudo` (unrestricted, passwordless) or the docker group to become container root | Expected; root is still an unprivileged host subuid, egress and credentials are unaffected |
 
 ## Credentials
 
@@ -225,9 +225,10 @@ vars (`SSL_CERT_FILE`, `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`,
 `NODE_EXTRA_CA_CERTS`). These ones need special handling, all done by
 `entrypoint.sh`:
 
-- **apt** — `sudo` resets the environment (`env_reset`), so `sudo apt-get`
-  never sees `HTTP_PROXY`. A persistent `/etc/apt/apt.conf.d/99sandbox-proxy`
-  is written instead.
+- **apt** — `/etc/apt/apt.conf.d/99sandbox-proxy` sets the proxy explicitly,
+  so apt works even where the shell env hasn't been sourced (e.g. non-login
+  invocations). sudo for `claude` has `env_reset` disabled, so `HTTP_PROXY` and
+  the CA vars also carry through to `sudo <anything>`.
 - **Java** — the JVM ignores `HTTP_PROXY`/`HTTPS_PROXY` entirely; it only reads
   the `http.proxyHost`/`https.proxyHost` system properties. Set for every JVM
   via `JAVA_TOOL_OPTIONS`. Note this makes every JVM print `Picked up

@@ -107,22 +107,25 @@ RUN JJ_VERSION="0.40.0" && \
     chmod +x /usr/local/bin/jj && \
     rm /tmp/jj.tar.gz
 
-# Sudo for claude — apt-get, so the agent can install extras at runtime.
+# Full passwordless sudo for claude. The user is already root-equivalent
+# inside the container via the docker group (`docker run -v /:/host
+# --privileged ...`), so a narrower sudoers rule would restrict nothing; it
+# would only trip up an agent that probes `sudo -n true` and concludes it has
+# no sudo at all.
 #
-# This is NOT a privilege boundary. Unrestricted apt-get arguments are root:
-# `-o APT::Update::Pre-Invoke::=/bin/sh`, `apt-get install ./any.deb` (runs
-# the package's postinst), or the pager from `apt-get changelog`. Listing only
-# apt-get rather than dpkg/apt is hygiene against accidental misuse, not a
-# barrier. The docker group already makes claude root-equivalent inside the
-# container anyway (`docker run -v /:/host --privileged ...`).
+# The security boundaries are outside this process: sysbox remaps container
+# uid 0 to an unprivileged host subuid, the --internal network plus sidecar
+# proxy enforce egress regardless of uid, and real credentials only exist in
+# the sidecar. Container root gains nothing it can exfiltrate or escape with.
 #
-# The real boundaries are outside this process: sysbox remaps container uid 0
-# to an unprivileged host subuid, the --internal network plus sidecar proxy
-# enforce egress regardless of uid, and real credentials only exist in the
-# sidecar. Container root gains nothing it can exfiltrate or escape with.
-RUN echo "claude ALL=(ALL) NOPASSWD: /usr/bin/apt-get" \
-    > /etc/sudoers.d/claude && \
-    chmod 0440 /etc/sudoers.d/claude
+# !env_reset keeps HTTP_PROXY/HTTPS_PROXY and the CA env vars across sudo, so
+# `sudo curl`, `sudo pip`, etc. still reach the network through the sidecar.
+RUN printf '%s\n' \
+        'Defaults:claude !env_reset' \
+        'claude ALL=(ALL) NOPASSWD: ALL' \
+        > /etc/sudoers.d/claude && \
+    chmod 0440 /etc/sudoers.d/claude && \
+    visudo -cf /etc/sudoers.d/claude
 
 # NuGet config layout: ~/.nuget/NuGet -> ~/.config/NuGet so bind-mounted
 # configs are found at NuGet's expected path.

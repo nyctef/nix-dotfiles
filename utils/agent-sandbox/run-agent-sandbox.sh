@@ -362,84 +362,75 @@ trap cleanup EXIT
 
 # ---------- create network and volumes ----------
 
-FIREWALL_DISABLED="${SANDBOX_DISABLE_FIREWALL:-}"
+echo "Creating sandbox network ($INTERNAL_NET, --internal, auto-subnet)..."
+docker network create --internal "$INTERNAL_NET"
 
-if [[ "$FIREWALL_DISABLED" != "1" ]]; then
-    echo "Creating sandbox network ($INTERNAL_NET, --internal, auto-subnet)..."
-    docker network create --internal "$INTERNAL_NET"
+echo "Creating CA-sharing volume ($CA_VOLUME)..."
+docker volume create "$CA_VOLUME" >/dev/null
 
-    echo "Creating CA-sharing volume ($CA_VOLUME)..."
-    docker volume create "$CA_VOLUME" >/dev/null
+# ---------- start sidecar ----------
+# Use docker create + network connect + start to attach both networks before
+# the entrypoint runs. This way the sidecar sees both interfaces at startup
+# and can correctly identify external (default route) vs internal.
 
-    # ---------- start sidecar ----------
-    # Use docker create + network connect + start to attach both networks before
-    # the entrypoint runs. This way the sidecar sees both interfaces at startup
-    # and can correctly identify external (default route) vs internal.
+echo "Starting sidecar proxy ($SIDECAR_NAME)..."
 
-    echo "Starting sidecar proxy ($SIDECAR_NAME)..."
+# Start sidecar on the default bridge (internet access), then attach to
+# the internal network. No NET_ADMIN or ip_forward needed — the sidecar
+# is a simple forward proxy, not a NAT gateway. Docker's --internal
+# network provides the mandatory enforcement.
+docker run -d \
+    --name "$SIDECAR_NAME" \
+    --network bridge \
+    -v "$CA_VOLUME:/shared-ca" \
+    ${SIDECAR_CRED_ENV[@]+"${SIDECAR_CRED_ENV[@]}"} \
+    "$SIDECAR_IMAGE" \
+    >/dev/null
 
-    # Start sidecar on the default bridge (internet access), then attach to
-    # the internal network. No NET_ADMIN or ip_forward needed — the sidecar
-    # is a simple forward proxy, not a NAT gateway. Docker's --internal
-    # network provides the mandatory enforcement.
-    docker run -d \
-        --name "$SIDECAR_NAME" \
-        --network bridge \
-        -v "$CA_VOLUME:/shared-ca" \
-        ${SIDECAR_CRED_ENV[@]+"${SIDECAR_CRED_ENV[@]}"} \
-        "$SIDECAR_IMAGE" \
-        >/dev/null
+docker network connect "$INTERNAL_NET" "$SIDECAR_NAME"
 
-    docker network connect "$INTERNAL_NET" "$SIDECAR_NAME"
+# Discover the sidecar's auto-assigned IP on the internal network.
+SIDECAR_INTERNAL_IP="$(docker inspect -f "{{(index .NetworkSettings.Networks \"$INTERNAL_NET\").IPAddress}}" "$SIDECAR_NAME")"
+if [[ -z "$SIDECAR_INTERNAL_IP" ]]; then
+    echo "ERROR: could not determine sidecar IP on $INTERNAL_NET" >&2
+    exit 1
+fi
 
-    # Discover the sidecar's auto-assigned IP on the internal network.
-    SIDECAR_INTERNAL_IP="$(docker inspect -f "{{(index .NetworkSettings.Networks \"$INTERNAL_NET\").IPAddress}}" "$SIDECAR_NAME")"
-    if [[ -z "$SIDECAR_INTERNAL_IP" ]]; then
-        echo "ERROR: could not determine sidecar IP on $INTERNAL_NET" >&2
-        exit 1
-    fi
-
-    # Wait for sidecar to be ready (CA generated, iptables configured)
-    echo "Waiting for sidecar to be ready..."
-    for _ in $(seq 1 60); do
-        # Check the CA volume for the readiness signal
-        if docker run --rm -v "$CA_VOLUME:/shared-ca:ro" alpine \
-            test -f /shared-ca/.sidecar-ready 2>/dev/null; then
-            break
-        fi
-        # Check sidecar is still running
-        if ! docker inspect --format '{{.State.Running}}' "$SIDECAR_NAME" 2>/dev/null | grep -q true; then
-            echo "ERROR: sidecar exited during startup. Logs:" >&2
-            docker logs "$SIDECAR_NAME" 2>&1 | tail -n 40 >&2 || true
-            exit 1
-        fi
-        sleep 0.5
-    done
-
-    # Verify readiness
-    if ! docker run --rm -v "$CA_VOLUME:/shared-ca:ro" alpine \
+# Wait for sidecar to be ready (CA generated, iptables configured)
+echo "Waiting for sidecar to be ready..."
+for _ in $(seq 1 60); do
+    # Check the CA volume for the readiness signal
+    if docker run --rm -v "$CA_VOLUME:/shared-ca:ro" alpine \
         test -f /shared-ca/.sidecar-ready 2>/dev/null; then
-        echo "ERROR: sidecar not ready within 30s. Logs:" >&2
+        break
+    fi
+    # Check sidecar is still running
+    if ! docker inspect --format '{{.State.Running}}' "$SIDECAR_NAME" 2>/dev/null | grep -q true; then
+        echo "ERROR: sidecar exited during startup. Logs:" >&2
         docker logs "$SIDECAR_NAME" 2>&1 | tail -n 40 >&2 || true
         exit 1
     fi
+    sleep 0.5
+done
 
-    echo "Sidecar proxy ready."
-
-    # Agent on --internal network only. No --dns override needed: the agent
-    # doesn't need external DNS because HTTP_PROXY handles hostname resolution
-    # (the proxy resolves DNS from its bridge interface). Docker's embedded DNS
-    # (127.0.0.11) still resolves container names on the internal network.
-    PROXY_URL="http://${SIDECAR_INTERNAL_IP}:${PROXY_PORT}"
-    NETWORK_ARGS=(--network "$INTERNAL_NET")
-    SIDECAR_ENV=(-e "SANDBOX_PROXY_URL=$PROXY_URL")
-    CA_MOUNT=(-v "$CA_VOLUME:/shared-ca:ro")
-else
-    echo "WARN: sidecar proxy disabled (SANDBOX_DISABLE_FIREWALL=1)." >&2
-    NETWORK_ARGS=()
-    SIDECAR_ENV=()
-    CA_MOUNT=()
+# Verify readiness
+if ! docker run --rm -v "$CA_VOLUME:/shared-ca:ro" alpine \
+    test -f /shared-ca/.sidecar-ready 2>/dev/null; then
+    echo "ERROR: sidecar not ready within 30s. Logs:" >&2
+    docker logs "$SIDECAR_NAME" 2>&1 | tail -n 40 >&2 || true
+    exit 1
 fi
+
+echo "Sidecar proxy ready."
+
+# Agent on --internal network only. No --dns override needed: the agent
+# doesn't need external DNS because HTTP_PROXY handles hostname resolution
+# (the proxy resolves DNS from its bridge interface). Docker's embedded DNS
+# (127.0.0.11) still resolves container names on the internal network.
+PROXY_URL="http://${SIDECAR_INTERNAL_IP}:${PROXY_PORT}"
+NETWORK_ARGS=(--network "$INTERNAL_NET")
+SIDECAR_ENV=(-e "SANDBOX_PROXY_URL=$PROXY_URL")
+CA_MOUNT=(-v "$CA_VOLUME:/shared-ca:ro")
 
 # ---------- parent CLAUDE.md files ----------
 # The working dir is mounted at its real host path, so Claude Code's walk-up
@@ -500,10 +491,8 @@ fi
 if [[ "$CLAUDE_MD_COUNT" -gt 0 ]]; then
 echo "  CLAUDE.md    : $CLAUDE_MD_COUNT ancestor file(s) mounted ro"
 fi
-if [[ "$FIREWALL_DISABLED" != "1" ]]; then
 echo "  Egress       : sidecar proxy ($SIDECAR_NAME) on $INTERNAL_NET (--internal)"
 echo "  Proxy URL    : $PROXY_URL"
-fi
 echo "  Agent command: $AGENT_CMD"
 echo ""
 
@@ -528,13 +517,13 @@ docker run \
     --runtime="$DOCKER_RUNTIME" \
     \
     `# ---- Network: internal only (sidecar is the only gateway) ----` \
-    ${NETWORK_ARGS[@]+"${NETWORK_ARGS[@]}"} \
+    "${NETWORK_ARGS[@]}" \
     \
     `# ---- Inner Docker data-root: per-instance volume (not shared) ----` \
     -v "$DATA_VOLUME:/var/lib/docker" \
     \
     `# ---- CA from sidecar: shared via Docker volume ----` \
-    ${CA_MOUNT[@]+"${CA_MOUNT[@]}"} \
+    "${CA_MOUNT[@]}" \
     \
     `# ---- Nix store (ro): Home Manager dotfile symlink targets ----` \
     ${NIX_STORE_MOUNT[@]+"${NIX_STORE_MOUNT[@]}"} \
@@ -552,8 +541,7 @@ docker run \
     -e "HOME=/home/claude" \
     -e "TERM=${TERM:-xterm-256color}" \
     -e "SANDBOX_AGENT_CMD=$AGENT_CMD" \
-    -e "SANDBOX_DISABLE_FIREWALL=${SANDBOX_DISABLE_FIREWALL:-}" \
-    ${SIDECAR_ENV[@]+"${SIDECAR_ENV[@]}"} \
+    "${SIDECAR_ENV[@]}" \
     ${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"} \
     \
     "$AGENT_IMAGE" \
