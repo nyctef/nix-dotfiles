@@ -99,9 +99,11 @@ above follows from that:
   socket. Anything leaving the agent in a privileged container (including
   single-container rootful/rootless dind) is roughly equivalent to mounting the
   host socket: one hop to host root.
-- Egress policy is expressed at **L7 (hostname/SNI/Host)**, not L3/L4 (resolved
-  IPs), to avoid CDN/shared-IP leaks and domain fronting. The proxy rejects
-  requests where the Host header disagrees with the SNI.
+- Egress policy is expressed at **L7 (hostname)**, not L3/L4 (resolved IPs),
+  to avoid CDN/shared-IP leaks. The hostname checked is the one the proxy will
+  actually connect to (the CONNECT authority, or the absolute-URI host for
+  plain HTTP). The Host header and SNI are client-controlled and are only
+  checked for consistency with that destination.
 - Real credentials never enter the agent container.
 - **`/nix/store` is mounted read-only** so Home Manager dotfiles (`CLAUDE.md`,
   skills, jj/git config) resolve — they are symlinks into the store, and a live
@@ -120,9 +122,10 @@ above follows from that:
 | Agent gains root, flushes its own iptables | No effect (enforcement is host-level) |
 | Agent kills the proxy process | Impossible (process is in the sidecar) |
 | Agent modifies the allowlist or policy addons | Impossible (files aren't in its filesystem) |
-| Domain fronting (Host ≠ SNI) | Rejected by proxy |
+| Spoofed Host header or SNI (≠ real destination) | Rejected by proxy; policy keys on the CONNECT/URI target |
 | QUIC / DNS-over-TLS / raw TCP exfil | Blocked (no route out of `--internal`) |
 | Nested container egress | Routed through the sidecar like everything else |
+| Host services (sshd, dockerd TCP socket) via the bridge gateway address | Unreachable; the bridge is created in isolated gateway mode and holds no host IP |
 | `apt-get` postinst scripts | Routed through the sidecar |
 | Agent uses `sudo` (unrestricted, passwordless) or the docker group to become container root | Expected; root is still an unprivileged host subuid, egress and credentials are unaffected |
 

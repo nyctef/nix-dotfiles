@@ -99,7 +99,17 @@ INTERNAL_NET="sandbox-internal-$$"
 # it cannot reach external IPs. The only way out is through the sidecar proxy,
 # which the agent reaches via its internal IP (in-subnet, allowed by Docker).
 # We let Docker pick the subnet to avoid collisions when running in parallel.
+#
+# gateway_mode_ipv4=isolated: the bridge gets no host-side IP. Without it, the
+# in-subnet gateway address belongs to the host, and --internal does not stop
+# in-subnet traffic — every host service bound to 0.0.0.0 (sshd, and dockerd's
+# TCP socket, i.e. host root) would be one hop from the agent.
+NETWORK_OPTS=(--internal -o com.docker.network.bridge.gateway_mode_ipv4=isolated)
 PROXY_PORT=8080
+
+# Every per-run resource carries this label so leftovers from a run that died
+# without reaching the EXIT trap can be identified and swept.
+SANDBOX_LABEL="agent-sandbox.instance"
 
 HOST_REPO_DIR="$PWD"
 
@@ -360,13 +370,30 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# ---------- sweep leftovers from earlier runs ----------
+# Exited sidecars, then networks with no attached containers, then dangling
+# volumes — in that order, since each holds a reference on the next.
+
+for _c in $(docker ps -aq -f "label=$SANDBOX_LABEL" -f status=exited 2>/dev/null); do
+    docker rm -f "$_c" >/dev/null 2>&1 && echo "  Swept stale sidecar $_c"
+done
+for _n in $(docker network ls -q -f "label=$SANDBOX_LABEL" 2>/dev/null); do
+    if [[ "$(docker network inspect -f '{{len .Containers}}' "$_n" 2>/dev/null)" == "0" ]]; then
+        docker network rm "$_n" >/dev/null 2>&1 && echo "  Swept stale network $_n"
+    fi
+done
+for _v in $(docker volume ls -q -f "label=$SANDBOX_LABEL" -f dangling=true 2>/dev/null); do
+    docker volume rm "$_v" >/dev/null 2>&1 && echo "  Swept stale volume $_v"
+done
+unset _c _n _v
+
 # ---------- create network and volumes ----------
 
-echo "Creating sandbox network ($INTERNAL_NET, --internal, auto-subnet)..."
-docker network create --internal "$INTERNAL_NET"
+echo "Creating sandbox network ($INTERNAL_NET, --internal, isolated gateway, auto-subnet)..."
+docker network create "${NETWORK_OPTS[@]}" --label "$SANDBOX_LABEL=$$" "$INTERNAL_NET"
 
 echo "Creating CA-sharing volume ($CA_VOLUME)..."
-docker volume create "$CA_VOLUME" >/dev/null
+docker volume create --label "$SANDBOX_LABEL=$$" "$CA_VOLUME" >/dev/null
 
 # ---------- start sidecar ----------
 # Use docker create + network connect + start to attach both networks before
@@ -381,6 +408,7 @@ echo "Starting sidecar proxy ($SIDECAR_NAME)..."
 # network provides the mandatory enforcement.
 docker run -d \
     --name "$SIDECAR_NAME" \
+    --label "$SANDBOX_LABEL=$$" \
     --network bridge \
     -v "$CA_VOLUME:/shared-ca" \
     ${SIDECAR_CRED_ENV[@]+"${SIDECAR_CRED_ENV[@]}"} \
@@ -509,8 +537,11 @@ else
     )
 fi
 
+docker volume create --label "$SANDBOX_LABEL=$$" "$DATA_VOLUME" >/dev/null
+
 # Run agent in foreground (not exec'd, so EXIT trap runs for cleanup).
 docker run \
+    --label "$SANDBOX_LABEL=$$" \
     --rm \
     -i $([ -t 0 ] && echo '-t') \
     --name "$CONTAINER_NAME" \

@@ -416,6 +416,87 @@ else
     skip "domain fronting — DNS not available on --internal network"
 fi
 
+# ── 11b. Destination spoofing (policy must key on the real target) ─────────
+
+section "Destination spoofing (Host header / SNI must not steer policy)"
+
+# Plain HTTP: absolute URI to a blocked host, Host header claims an allowed one.
+# The sidecar must answer with its own 403, not forward upstream.
+_spoof_out="$(curl -s --max-time 10 -H 'Host: github.com' http://example.com/ 2>/dev/null || true)"
+if [[ "$_spoof_out" == *"Egress blocked by sandbox policy"* ]]; then
+    pass "plain-HTTP Host spoof (URI=example.com, Host=github.com) blocked by sidecar"
+else
+    fail "plain-HTTP Host spoof reached upstream (got: ${_spoof_out:0:80})"
+fi
+
+# HTTPS: CONNECT to a blocked host, no SNI, Host header claims an allowed one.
+# The CONNECT itself must be refused.
+_connect_status="$(python3 - <<'PY' 2>/dev/null || true
+import os, socket
+h, p = os.environ["HTTP_PROXY"].split("://")[1].split(":")
+s = socket.create_connection((h, int(p)), timeout=10)
+s.sendall(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
+print(s.recv(4096).split(b"\r\n")[0].decode(errors="replace"))
+PY
+)"
+if [[ "$_connect_status" == *" 403"* ]]; then
+    pass "CONNECT to blocked host refused ($_connect_status)"
+else
+    fail "CONNECT to blocked host not refused (got: $_connect_status)"
+fi
+
+# CONNECT to an allowed host but Host header names a blocked one (fronting).
+_front_out="$(python3 - <<'PY' 2>/dev/null || true
+import os, socket, ssl
+h, p = os.environ["HTTP_PROXY"].split("://")[1].split(":")
+s = socket.create_connection((h, int(p)), timeout=10)
+s.sendall(b"CONNECT github.com:443 HTTP/1.1\r\nHost: github.com:443\r\n\r\n")
+if b" 200" not in s.recv(4096).split(b"\r\n")[0]:
+    raise SystemExit("connect refused")
+ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+t = ctx.wrap_socket(s, server_hostname="github.com")
+t.sendall(b"GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n")
+data = b""
+while True:
+    c = t.recv(65536)
+    if not c: break
+    data += c
+print(data.decode(errors="replace"))
+PY
+)"
+if [[ "$_front_out" == *"domain fronting"* ]]; then
+    pass "fronting (CONNECT github.com, Host=example.com) rejected"
+else
+    fail "fronting not rejected (got: ${_front_out:0:80})"
+fi
+
+# ── 11c. Host reachability from the internal network ────────────────────────
+# Docker --internal only drops traffic leaving the bridge subnet. On a default
+# bridge the first in-subnet address is the host's, so any host service bound
+# to 0.0.0.0 is reachable. The launcher creates the network in isolated
+# gateway mode so the host holds no address; the first address then belongs
+# to a container (or nobody), and these host ports must not answer on it.
+
+section "Host services via internal-network first address"
+
+_gw="$(python3 -c '
+import ipaddress, subprocess
+out = subprocess.check_output(["ip", "-4", "-o", "addr", "show", "eth0"]).decode()
+cidr = out.split("inet ")[1].split()[0]
+print(ipaddress.ip_interface(cidr).network[1])
+' 2>/dev/null || true)"
+if [[ -z "$_gw" ]]; then
+    skip "gateway address could not be derived"
+else
+    for _port in 2375 22; do
+        if timeout 5 bash -c "exec 3<>/dev/tcp/$_gw/$_port" 2>/dev/null; then
+            fail "host port $_port answers on internal-network address $_gw (host has an IP on the bridge?)"
+        else
+            pass "host port $_port does not answer on $_gw"
+        fi
+    done
+fi
+
 # ── 12. Inner Docker (sysbox nested containers) ─────────────────────────────
 
 section "Inner Docker (sysbox nested containers)"
