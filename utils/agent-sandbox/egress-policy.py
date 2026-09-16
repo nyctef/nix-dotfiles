@@ -1,14 +1,18 @@
 """
 mitmproxy addon: L7 egress policy for the agent sandbox.
 
-Enforces a hostname allowlist at L7 (SNI for HTTPS, Host header for HTTP).
-Rejects domain fronting (Host ≠ SNI on the same connection).
+Enforces a hostname allowlist at L7. The proxy runs in regular (explicit)
+mode, so the destination the agent actually reaches is the CONNECT authority
+(HTTPS) or the absolute-URI host (plain HTTP). That is `flow.request.host`,
+and it is what the allowlist is checked against.
 
-In transparent mode, all agent traffic is redirected here by iptables — the
-agent cannot bypass this even if it ignores HTTP_PROXY.
+The Host header and TLS SNI are client-controlled labels and are never used
+to decide the destination — an agent could otherwise CONNECT to an arbitrary
+host and present an allowlisted Host header. They are checked only as a
+consistency constraint: when present, each must sit under the same allowlist
+entry as the real destination (anti domain-fronting).
 
-Loaded via: mitmdump --mode transparent --set confdir=/etc/mitmproxy \
-                      -s /opt/egress-policy.py
+Loaded via: mitmdump --mode regular -s /opt/egress-policy.py
 """
 
 import fnmatch
@@ -16,8 +20,8 @@ import logging
 import re
 from pathlib import Path
 
-from mitmproxy import ctx, http, tls, connection
-from mitmproxy.net.server_spec import ServerSpec
+from mitmproxy import ctx, http
+from mitmproxy.net.http import url
 
 logger = logging.getLogger(__name__)
 
@@ -80,66 +84,57 @@ class EgressPolicy:
             path,
         )
 
-    def tls_clienthello(self, data: tls.ClientHelloData):
-        """Check SNI at TLS handshake time — reject before any data flows."""
-        sni = data.client_hello.sni
-        if sni and not _is_allowed(sni, self.allowed_domains):
-            logger.warning("BLOCKED (SNI): %s", sni)
-            data.ignore_connection = False
-            # Setting establish_server_tls to False and ignoring won't help;
-            # we need to let it through to request phase for a clean error.
-            # But we can stash the decision.
-            data.context.blocked_sni = sni  # type: ignore[attr-defined]
+    def _same_entry(self, a: str, b: str) -> bool:
+        """True if some single allowlist entry covers both hostnames."""
+        return any(
+            _host_matches_domain(a, d) and _host_matches_domain(b, d)
+            for d in self.allowed_domains
+        )
+
+    @staticmethod
+    def _deny(flow: http.HTTPFlow, msg: str) -> None:
+        flow.response = http.Response.make(
+            403, f"Egress blocked by sandbox policy: {msg}\n".encode(),
+            {"Content-Type": "text/plain"},
+        )
+
+    def http_connect(self, flow: http.HTTPFlow):
+        """Reject a CONNECT tunnel to a non-allowlisted host before any TLS."""
+        dest = flow.request.host
+        if not dest or not _is_allowed(dest, self.allowed_domains):
+            logger.warning("BLOCKED (CONNECT): %s", dest)
+            self._deny(flow, f"CONNECT {dest}")
 
     def request(self, flow: http.HTTPFlow):
         """Enforce policy on every HTTP(S) request."""
-        host = flow.request.pretty_host
-        if not host:
-            flow.response = http.Response.make(
-                403, b"Egress blocked: no host", {"Content-Type": "text/plain"}
-            )
+        dest = flow.request.host
+        if not dest:
+            self._deny(flow, "no destination host")
             return
 
-        # Check the hostname against the allowlist
-        if not _is_allowed(host, self.allowed_domains):
-            logger.warning("BLOCKED (Host): %s%s", host, flow.request.path)
-            flow.response = http.Response.make(
-                403,
-                f"Egress blocked by sandbox policy: {host}\n".encode(),
-                {"Content-Type": "text/plain"},
-            )
+        if not _is_allowed(dest, self.allowed_domains):
+            logger.warning("BLOCKED (dest): %s%s", dest, flow.request.path)
+            self._deny(flow, dest)
             return
 
-        # Domain fronting check: if we have an SNI from the TLS handshake,
-        # the Host header must be in the same domain tree.
-        # (In transparent mode, mitmproxy sets flow.server_conn.peername from
-        # the original destination; the SNI is on the client connection.)
-        client_sni = getattr(
-            flow.client_conn, "sni", None
-        ) or getattr(
-            getattr(flow, "_ctx", None), "blocked_sni", None
-        )
-        if client_sni and host.lower() != client_sni.lower():
-            # Allow if both the Host and the SNI match the same allowed entry
-            # (exact, subdomain, or glob).
-            sni_ok = any(
-                _host_matches_domain(host, d) and _host_matches_domain(client_sni, d)
-                for d in self.allowed_domains
-            )
-            if not sni_ok:
+        # Consistency: Host header and SNI must agree with the real destination.
+        host_header = flow.request.host_header
+        header_host = url.parse_authority(host_header, check=False)[0] if host_header else ""
+        sni = getattr(flow.client_conn, "sni", None) or ""
+        for label, value in (("Host", header_host), ("SNI", sni)):
+            if not value:
+                continue
+            value = value.lower().rstrip(".")
+            if value == dest.lower().rstrip("."):
+                continue
+            if not self._same_entry(dest, value):
                 logger.warning(
-                    "BLOCKED (domain fronting): SNI=%s Host=%s",
-                    client_sni,
-                    host,
+                    "BLOCKED (domain fronting): dest=%s %s=%s", dest, label, value
                 )
-                flow.response = http.Response.make(
-                    403,
-                    f"Egress blocked: domain fronting (SNI={client_sni}, Host={host})\n".encode(),
-                    {"Content-Type": "text/plain"},
-                )
+                self._deny(flow, f"domain fronting (dest={dest}, {label}={value})")
                 return
 
-        logger.debug("ALLOWED: %s%s", host, flow.request.path)
+        logger.debug("ALLOWED: %s%s", dest, flow.request.path)
 
 
 addons = [EgressPolicy()]

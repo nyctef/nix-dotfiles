@@ -110,7 +110,8 @@ try:
         def request(self, flow: "http.HTTPFlow"):
             if flow.response:  # already decided by an earlier addon
                 return
-            host = flow.request.pretty_host
+            # Real destination, not the spoofable Host header.
+            host = flow.request.host
             if not host or not GitHubPolicy.is_github_host(host):
                 return
 

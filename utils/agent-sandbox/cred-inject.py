@@ -155,7 +155,10 @@ class CredentialInjector:
         if flow.response:
             return
 
-        host = flow.request.pretty_host
+        # Key on the real destination (CONNECT authority / absolute-URI host),
+        # not the client-controlled Host header, so a spoofed Host can never
+        # steer a credential onto a request bound for a different server.
+        host = flow.request.host
         if not host:
             return
 
@@ -219,7 +222,7 @@ class CredentialInjector:
                 f"x-access-token:{svc.real_credential}".encode()
             ).decode()
             flow.request.headers["Authorization"] = f"Basic {real_b64}"
-            logger.debug("Injected GitHub git credential for %s%s", flow.request.pretty_host, path)
+            logger.debug("Injected GitHub git credential for %s%s", flow.request.host, path)
         else:
             # API: replace placeholder token or set outright.
             if svc.placeholder and svc.placeholder in auth_header:
@@ -231,7 +234,7 @@ class CredentialInjector:
                 flow.request.headers["Authorization"] = (
                     f"token {svc.real_credential}"
                 )
-            logger.debug("Injected GitHub API credential for %s%s", flow.request.pretty_host, path)
+            logger.debug("Injected GitHub API credential for %s%s", flow.request.host, path)
 
     def _inject_basic_auth(self, flow: http.HTTPFlow, svc: ServiceConfig):
         """Replace placeholder PAT in Basic auth header."""
@@ -245,7 +248,7 @@ class CredentialInjector:
             logger.debug(
                 "Injected %s Basic auth credential (placeholder swap) for %s",
                 svc.name,
-                flow.request.pretty_host,
+                flow.request.host,
             )
         elif auth_header.lower().startswith("basic "):
             # Decode, check for placeholder in the decoded value, re-encode.
@@ -258,7 +261,7 @@ class CredentialInjector:
                     logger.debug(
                         "Injected %s Basic auth credential (b64 placeholder swap) for %s",
                         svc.name,
-                        flow.request.pretty_host,
+                        flow.request.host,
                     )
             except Exception:
                 pass
@@ -272,7 +275,7 @@ class CredentialInjector:
             logger.debug(
                 "Injected %s Basic auth credential (new header) for %s",
                 svc.name,
-                flow.request.pretty_host,
+                flow.request.host,
             )
 
     def _inject_bearer(self, flow: http.HTTPFlow, svc: ServiceConfig):
@@ -287,7 +290,7 @@ class CredentialInjector:
             logger.debug(
                 "Injected %s Bearer credential (placeholder swap) for %s",
                 svc.name,
-                flow.request.pretty_host,
+                flow.request.host,
             )
         elif auth_header.lower().startswith("bearer ") and svc.placeholder and svc.placeholder in auth_header:
             # Already covered above, but explicit for clarity.
@@ -300,7 +303,7 @@ class CredentialInjector:
             logger.debug(
                 "Injected %s Bearer credential (new header) for %s",
                 svc.name,
-                flow.request.pretty_host,
+                flow.request.host,
             )
         else:
             # Auth header exists but doesn't contain our placeholder — don't
@@ -334,7 +337,7 @@ class CredentialInjector:
                     "Stripped placeholder %s '%s' header for %s",
                     svc.name,
                     header_name,
-                    flow.request.pretty_host,
+                    flow.request.host,
                 )
 
     def _inject_header(self, flow: http.HTTPFlow, svc: ServiceConfig):
@@ -362,7 +365,7 @@ class CredentialInjector:
             "Injected %s header '%s' for %s",
             svc.name,
             header_name,
-            flow.request.pretty_host,
+            flow.request.host,
         )
 
 
