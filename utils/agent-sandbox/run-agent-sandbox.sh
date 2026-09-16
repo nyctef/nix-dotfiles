@@ -441,6 +441,26 @@ else
     CA_MOUNT=()
 fi
 
+# ---------- parent CLAUDE.md files ----------
+# The working dir is mounted at its real host path, so Claude Code's walk-up
+# search for CLAUDE.md needs each ancestor directory's CLAUDE.md mounted at
+# that same path too, or the walk-up hits missing paths and stops early.
+CLAUDE_MD_MOUNTS=()
+CLAUDE_MD_COUNT=0
+_search_dir="$(dirname "$HOST_PROJECT_DIR")"
+while [[ "$_search_dir" != "/" ]]; do
+    if [[ -f "$_search_dir/CLAUDE.md" ]]; then
+        CLAUDE_MD_MOUNTS+=(-v "$_search_dir/CLAUDE.md:$_search_dir/CLAUDE.md:ro")
+        CLAUDE_MD_COUNT=$((CLAUDE_MD_COUNT + 1))
+    fi
+    _search_dir="$(dirname "$_search_dir")"
+done
+if [[ -f "/CLAUDE.md" ]]; then
+    CLAUDE_MD_MOUNTS+=(-v "/CLAUDE.md:/CLAUDE.md:ro")
+    CLAUDE_MD_COUNT=$((CLAUDE_MD_COUNT + 1))
+fi
+unset _search_dir
+
 # ---------- Nix store ----------
 # Two things need the store: Home Manager dotfiles (CLAUDE.md, skills, jj/git
 # config, ...) are symlinks into it, and Nix-wrapped agents like pi have shims
@@ -477,6 +497,9 @@ echo "  Runtime      : $DOCKER_RUNTIME (inner dockerd, no host socket)"
 if [[ ${#NIX_STORE_MOUNT[@]} -gt 0 ]]; then
 echo "  Nix store    : /nix/store (ro, for Home Manager dotfile symlinks)"
 fi
+if [[ "$CLAUDE_MD_COUNT" -gt 0 ]]; then
+echo "  CLAUDE.md    : $CLAUDE_MD_COUNT ancestor file(s) mounted ro"
+fi
 if [[ "$FIREWALL_DISABLED" != "1" ]]; then
 echo "  Egress       : sidecar proxy ($SIDECAR_NAME) on $INTERNAL_NET (--internal)"
 echo "  Proxy URL    : $PROXY_URL"
@@ -492,7 +515,8 @@ if [[ -n "$WORKTREE_NAME" ]]; then
     )
 else
     PROJECT_MOUNTS=(
-        -v "$HOST_PROJECT_DIR:/home/claude/project:rw"
+        -v "$HOST_PROJECT_DIR:$HOST_PROJECT_DIR:rw"
+        -w "$HOST_PROJECT_DIR"
     )
 fi
 
@@ -514,6 +538,9 @@ docker run \
     \
     `# ---- Nix store (ro): Home Manager dotfile symlink targets ----` \
     ${NIX_STORE_MOUNT[@]+"${NIX_STORE_MOUNT[@]}"} \
+    \
+    `# ---- Ancestor CLAUDE.md files, mounted at their host paths ----` \
+    ${CLAUDE_MD_MOUNTS[@]+"${CLAUDE_MD_MOUNTS[@]}"} \
     \
     `# ---- Project / worktree mounts ----` \
     "${PROJECT_MOUNTS[@]}" \

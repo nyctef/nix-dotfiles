@@ -255,11 +255,6 @@ vars (`SSL_CERT_FILE`, `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`,
 - **No OpenAI/Google/OpenRouter credential injection.** Those keys get
   placeholder env vars so an SDK will start, but the sidecar doesn't inject real
   values. Extend `credential-map.yaml` and `cred-inject.py` when needed.
-- **jj/git identity is the personal one in work repos.** The work identity is
-  scoped by `--when.repositories = ["~/rg"]`, which can't match container paths
-  (the project is mounted at `/home/claude/project`). Same mismatch affects
-  `~/.config/git/config`'s `includeIf "gitdir:~/rg/"`. Fix by pinning
-  `JJ_USER`/`JJ_EMAIL` (+ `GIT_AUTHOR_*`/`GIT_COMMITTER_*`) if it starts to bite.
 - **Gradle and Flyway aren't specially configured.** The Gradle daemon should
   inherit `JAVA_TOOL_OPTIONS`, and Flyway's bundled JRE has its own keystore
   that doesn't receive the CA. Neither is confirmed working.
