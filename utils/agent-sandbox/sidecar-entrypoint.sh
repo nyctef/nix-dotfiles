@@ -35,8 +35,10 @@ echo "Starting egress proxy (mitmproxy forward mode, port $PROXY_PORT)..."
 # or full-URL requests for HTTP. mitmproxy resolves DNS and connects to the
 # real server from the sidecar's network namespace (which has internet).
 #
-# --ssl-insecure: don't validate upstream certs (the proxy is the policy
-# point, not a security gateway for upstream TLS).
+# Upstream TLS is verified (mitmproxy's default, against the certifi bundle).
+# The sidecar attaches real credentials to outbound requests, so an
+# unverified upstream would hand them to whoever sits on the path. A host
+# whose certificate fails verification gets a 502 from the proxy.
 #
 # --set connection_strategy=lazy: don't connect upstream until the full
 # request is available (needed for proper Host header checking).
@@ -56,7 +58,6 @@ mitmdump \
     --listen-port "$PROXY_PORT" \
     --set confdir="$PROXY_CONFDIR" \
     --set connection_strategy=lazy \
-    --ssl-insecure \
     -s /opt/egress-policy.py \
     -s /opt/github-policy.py \
     -s /opt/cred-inject.py \
