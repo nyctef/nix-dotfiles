@@ -368,7 +368,7 @@ else
     fail "HTTPS_PROXY lost under sudo: sudo curl/pip would fail to reach the network"
 fi
 
-if sudo -n curl -s --max-time 5 https://example.com >/dev/null 2>&1; then
+if sudo -n curl -sf --connect-timeout 5 --max-time 10 https://example.com >/dev/null 2>&1; then
     fail "root (via sudo) reached blocked host example.com (bypass!)"
 else
     pass "root (via sudo) blocked from example.com"
