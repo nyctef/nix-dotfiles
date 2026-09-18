@@ -288,6 +288,22 @@
         "type": "github"
       }
     },
+    "nyctef-com": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1496929330,
+        "narHash": "sha256-F6XzuIGONk2ybUYrWREhr52kiVVhae5syZavJhUx7pE=",
+        "ref": "refs/heads/master",
+        "rev": "c0557d2b59d98f0035676e7771c36c118f1eb89a",
+        "revCount": 3,
+        "type": "git",
+        "url": "ssh://git@github.com/nyctef/nyctef.com"
+      },
+      "original": {
+        "type": "git",
+        "url": "ssh://git@github.com/nyctef/nyctef.com"
+      }
+    },
     "plugins-roslyn-nvim": {
       "flake": false,
       "locked": {
@@ -315,6 +331,7 @@
         "nixpkgs": "nixpkgs",
         "nixpkgs-docker": "nixpkgs-docker",
         "nugetui": "nugetui",
+        "nyctef-com": "nyctef-com",
         "plugins-roslyn-nvim": "plugins-roslyn-nvim",
         "ticket": "ticket"
       }

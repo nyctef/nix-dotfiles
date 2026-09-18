@@ -185,6 +185,9 @@ in
       # The `Host *` block home-manager adds by default only restates OpenSSH's
       # own defaults, so there's nothing to carry over here.
       enableDefaultConfig = false;
+      # github.com is listed so the non-default key name gets offered; the
+      # nyctef.com flake input is fetched over ssh.
+      settings."github.com".IdentityFile = "${config.home.homeDirectory}/.ssh/id_nyctef_2026";
       settings.nyc-08 = {
         HostName = "52.149.67.34";
         User = "nyctef";
