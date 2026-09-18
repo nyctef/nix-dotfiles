@@ -46,12 +46,9 @@ in
   # No passwords are set on this machine; it's SSH-key access only.
   security.sudo.wheelNeedsPassword = false;
 
-  # nixos-anywhere installs over SSH as root, and root is still how the machine
-  # is reachable if the nyctef account or home-manager breaks. azure-common
-  # already relaxes this to "prohibit-password"; ../configuration.nix sets "no",
-  # so the conflict has to be broken explicitly.
-  services.openssh.settings.PermitRootLogin = lib.mkForce "prohibit-password";
-  users.users.root.openssh.authorizedKeys.keys = [ nyctefKey ];
+  # azure-common sets this to "prohibit-password" and ../configuration.nix sets
+  # "no", both at normal priority, so the tie has to be broken explicitly.
+  services.openssh.settings.PermitRootLogin = lib.mkForce "no";
 
   environment.systemPackages = with pkgs; [
     git
