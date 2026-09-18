@@ -12,8 +12,10 @@
 }:
 
 let
-  # Same key as users/generic.nix installs into ~/.ssh/authorized_keys.
-  nyctefKey = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCekId/sXLRgaXZKcDzBeQyaJftBNKCXh5Hwn0KaLgbxUtCc+uJRKu9lt6eg4NegJJXc6JlJxrArd8lGXcjni4eqVzQRbRA1z01Vx1IlDJMZpoERjoWytNQ/J2MifQXlqR51kpPyU/H8kNphZ9yBAeuiZxcTySZIvijT7WELD2Raw+YMtNQKVyn93yCOuAMF9o/IdbtoesJZHcrFW+cIK3m0leNAiYpS2qZ9xo79F2CP3rn142ok5s6ts0ATtuMFR/EpeqRf9WFZIVONiewg7avi3BiJabH33djJ4RrBxXAevzevFs9UZtJqjY4XJczbWSV5nwQuPP4sh8vgkjD3PVH";
+  # ~/.ssh/id_nyctef_2026. NixOS installs this under
+  # /etc/ssh/authorized_keys.d/, which sshd reads alongside ~/.ssh/authorized_keys,
+  # so it stays valid independently of home-manager.
+  nyctefKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDFUlR/WWULw+ULRHYaieM2HyKr28qchBTzyqcICqgf8 nyctef-2026";
 in
 
 {
