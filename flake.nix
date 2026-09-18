@@ -21,6 +21,9 @@
     agenix.url = "github:ryantm/agenix";
     agenix.inputs.nixpkgs.follows = "nixpkgs";
 
+    disko.url = "github:nix-community/disko";
+    disko.inputs.nixpkgs.follows = "nixpkgs";
+
     ff14-utils.url = "github:nyctef/ff14-utils";
     ff14-utils.inputs.nixpkgs.follows = "nixpkgs";
 
@@ -99,6 +102,18 @@
 
           extraSpecialArgs = { inherit inputs; };
         };
+        "nyctef@nyc-08" = home-manager.lib.homeManagerConfiguration {
+          inherit pkgs;
+
+          modules = [
+            ./users/generic.nix
+            {
+              genHome.username = "nyctef";
+            }
+          ];
+
+          extraSpecialArgs = { inherit inputs; };
+        };
         "root@codespace" = home-manager.lib.homeManagerConfiguration {
           inherit pkgs;
 
@@ -125,6 +140,16 @@
             ./system/configuration.nix
             ./system/wsl.nix
             ./system/tachikoma/configuration.nix
+          ];
+
+          specialArgs = { inherit inputs; };
+        };
+        nyc-08 = lib.nixosSystem {
+          inherit system;
+
+          modules = [
+            ./system/configuration.nix
+            ./system/nyc-08/configuration.nix
           ];
 
           specialArgs = { inherit inputs; };
