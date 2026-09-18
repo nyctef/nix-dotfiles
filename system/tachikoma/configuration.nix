@@ -51,4 +51,10 @@
     "fs.inotify.max_user_instances" = lib.mkForce 1048576;
     "kernel.pid_max" = lib.mkForce 4194304;
   };
+
+  # Build aarch64 closures for nyc-08 here rather than on the VM itself.
+  # Emulated builds still produce native aarch64 store paths, so cache.nixos.org
+  # substitutes almost everything and only uncached derivations run under qemu.
+  # This also adds aarch64-linux to nix.settings.extra-platforms.
+  boot.binfmt.emulatedSystems = [ "aarch64-linux" ];
 }
