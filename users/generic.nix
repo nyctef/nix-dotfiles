@@ -180,6 +180,15 @@ in
       "${inputs.self}/bin"
     ];
 
+    programs.ssh = {
+      enable = true;
+      matchBlocks.nyc-08 = {
+        hostname = "52.149.67.34";
+        user = "nyctef";
+        identityFile = "${config.home.homeDirectory}/.ssh/id_nyctef_2026";
+      };
+    };
+
     home.file.".ssh/hm_authorized_keys" = {
       text = ''
         ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCekId/sXLRgaXZKcDzBeQyaJftBNKCXh5Hwn0KaLgbxUtCc+uJRKu9lt6eg4NegJJXc6JlJxrArd8lGXcjni4eqVzQRbRA1z01Vx1IlDJMZpoERjoWytNQ/J2MifQXlqR51kpPyU/H8kNphZ9yBAeuiZxcTySZIvijT7WELD2Raw+YMtNQKVyn93yCOuAMF9o/IdbtoesJZHcrFW+cIK3m0leNAiYpS2qZ9xo79F2CP3rn142ok5s6ts0ATtuMFR/EpeqRf9WFZIVONiewg7avi3BiJabH33djJ4RrBxXAevzevFs9UZtJqjY4XJczbWSV5nwQuPP4sh8vgkjD3PVH
