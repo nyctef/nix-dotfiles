@@ -48,22 +48,18 @@
     let
       system = "x86_64-linux";
 
-      mkPkgs =
-        system:
-        import nixpkgs {
-          inherit system;
+      pkgs = import nixpkgs {
+        inherit system;
 
-          config = {
-            allowUnfree = true;
-          };
-
-          overlays = [
-            (import ./overlays/dotnet.nix)
-            (import ./overlays/jujutsu.nix)
-          ];
+        config = {
+          allowUnfree = true;
         };
 
-      pkgs = mkPkgs system;
+        overlays = [
+          (import ./overlays/dotnet.nix)
+          (import ./overlays/jujutsu.nix)
+        ];
+      };
 
       lib = nixpkgs.lib;
     in
@@ -96,19 +92,6 @@
         };
         "nyctef@logikoma" = home-manager.lib.homeManagerConfiguration {
           inherit pkgs;
-
-          modules = [
-            ./users/generic.nix
-            {
-              genHome.username = "nyctef";
-            }
-          ];
-
-          extraSpecialArgs = { inherit inputs; };
-        };
-        "nyctef@nyc-08" = home-manager.lib.homeManagerConfiguration {
-          # nyc-08 is an Azure Ampere instance, not x86_64 like the others.
-          pkgs = mkPkgs "aarch64-linux";
 
           modules = [
             ./users/generic.nix
