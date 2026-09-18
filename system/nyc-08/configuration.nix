@@ -56,6 +56,13 @@ in
   # No passwords are set on this machine; it's SSH-key access only.
   security.sudo.wheelNeedsPassword = false;
 
+  # Deploys push closures built on tachikoma, which carry no signature the
+  # daemon recognises. Only trusted users may add unsigned paths to the store.
+  nix.settings.trusted-users = [
+    "root"
+    "nyctef"
+  ];
+
   # azure-common sets this to "prohibit-password" and ../configuration.nix sets
   # "no", both at normal priority, so the tie has to be broken explicitly.
   services.openssh.settings.PermitRootLogin = lib.mkForce "no";
