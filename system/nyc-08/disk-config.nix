@@ -1,13 +1,8 @@
 # Declarative partitioning for nixos-anywhere, applied by disko during install.
 #
-# Azure Gen2 VMs boot UEFI and present the OS disk as /dev/sda. The ephemeral
-# resource disk (/dev/sdb on most sizes) is deliberately left alone: its
-# contents are lost on deallocate, so nothing here may depend on it.
-#
-# Check `lsblk` on the target before deploying and override if the OS disk
-# lands somewhere else:
-#   nixos-anywhere --disk-encryption-keys ... --flake .#nyc-08 \
-#     --option ... # or just edit `device` below
+# Azure Gen2 VMs boot UEFI and present the OS disk as /dev/sda. Check `lsblk`
+# on the target before deploying, and edit `device` below if it lands
+# somewhere else.
 {
   disko.devices.disk.main = {
     type = "disk";
