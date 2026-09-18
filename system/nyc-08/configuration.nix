@@ -33,6 +33,16 @@ in
   # azure-common defaults the hostname to "" so waagent can supply it from the
   # instance metadata; we want a stable name instead.
   networking.hostName = "nyc-08";
+
+  # azure-common targets x86_64 and asks for console=ttyS0 / earlyprintk=ttyS0.
+  # The serial port on an Azure ARM instance is the PL011 at ttyAMA0, and
+  # earlyprintk is x86-only, so without these the serial console stays blank.
+  # The kernel ignores a console= naming a device that doesn't exist, and the
+  # last console= wins for /dev/console, so appending is enough.
+  boot.kernelParams = [
+    "console=ttyAMA0,115200n8"
+    "earlycon"
+  ];
   time.timeZone = "Europe/London";
   i18n.defaultLocale = "en_US.UTF-8";
 
