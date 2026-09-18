@@ -182,10 +182,13 @@ in
 
     programs.ssh = {
       enable = true;
-      matchBlocks.nyc-08 = {
-        hostname = "52.149.67.34";
-        user = "nyctef";
-        identityFile = "${config.home.homeDirectory}/.ssh/id_nyctef_2026";
+      # The `Host *` block home-manager adds by default only restates OpenSSH's
+      # own defaults, so there's nothing to carry over here.
+      enableDefaultConfig = false;
+      settings.nyc-08 = {
+        HostName = "52.149.67.34";
+        User = "nyctef";
+        IdentityFile = "${config.home.homeDirectory}/.ssh/id_nyctef_2026";
       };
     };
 
