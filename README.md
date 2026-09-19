@@ -59,5 +59,9 @@ sudo apt install openssh-server
 # check that the appropriate public key is in ~/.ssh/authorized_keys
 ```
 
+### developing
+
+- format: `nix fmt .`
+
 
 [1]: https://www.youtube.com/watch?v=Dy3KHMuDNS8
