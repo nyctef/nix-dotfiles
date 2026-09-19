@@ -73,3 +73,19 @@ nix-store --export $(nix-store -qR "$OUT") | gzip | \
 ssh nyc-08 "sudo nix-env -p /nix/var/nix/profiles/system --set $OUT"
 ssh nyc-08 "sudo $OUT/bin/switch-to-configuration switch"
 ```
+
+## Setting up beszel
+
+Beszel wants an admin username/password on first startup: just do that manually for
+now (TODO: see if this is controllable via nix - might be something in pocketbase?)
+
+Beszel generates some secrets on first startup that are needed to join the hub
+and agent together. Grab the public key from the hub and make a token, then create
+`/var/lib/beszel-agent/credentials` with the following contents:
+
+```
+KEY=contents of public key
+TOKEN=token UUID
+```
+
+then `sudo systemctl restart beszel-agent`
