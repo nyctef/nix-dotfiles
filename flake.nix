@@ -142,6 +142,7 @@
             ./system/configuration.nix
             ./system/nyc-08/configuration.nix
             ./system/nyc-08/web.nix
+            ./system/nyc-08/beszel.nix
           ];
 
           specialArgs = { inherit inputs; };
