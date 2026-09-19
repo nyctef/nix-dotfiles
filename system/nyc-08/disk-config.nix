@@ -1,8 +1,6 @@
-# Declarative partitioning for nixos-anywhere, applied by disko during install.
-#
-# Azure Gen2 VMs boot UEFI and present the OS disk as /dev/sda. Check `lsblk`
-# on the target before deploying, and edit `device` below if it lands
-# somewhere else.
+# A fairly standard disk partitioning for nix-anywhere.
+# Doublecheck that the pre-install VM shows sda in `lsblk` just to make
+# sure this is the right place to put the filesystem
 {
   disko.devices.disk.main = {
     type = "disk";
@@ -10,6 +8,7 @@
     content = {
       type = "gpt";
       partitions = {
+        # ESP = EFI System Partition (for UEFI)
         ESP = {
           priority = 1;
           size = "512M";
