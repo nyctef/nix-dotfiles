@@ -9,13 +9,16 @@
 with lib;
 let
   cfg = config.genHome;
-  
+
   system = pkgs.stdenv.hostPlatform.system;
 
   waitcat = import ../utils/waitcat.nix { inherit pkgs; };
   watch-pr = import ../utils/watch-pr.nix { inherit pkgs; };
   claude-code-transcripts = import ../utils/claude-code-transcripts.nix { inherit pkgs; };
-  tk = import ../utils/ticket.nix { inherit pkgs; ticket-src = inputs.ticket; };
+  tk = import ../utils/ticket.nix {
+    inherit pkgs;
+    ticket-src = inputs.ticket;
+  };
   cleanup-worktrees = import ../utils/cleanup-worktrees.nix { inherit pkgs; };
   recent-claude-sessions = import ../utils/recent-claude-sessions.nix { inherit pkgs; };
   renovate_dashboard = import ../utils/renovate_dashboard.nix { inherit pkgs; };
@@ -165,8 +168,8 @@ in
       # using the machine's ssh host keys. When using home-manager the shell
       # might try to start before the agenix service has fully loaded, so
       # we use waitcat instead of cat to work around the problem.
-      hello = ''$(${waitcat}/bin/waitcat ${config.age.secrets.hello.path})'';
-      PAGER = ''less -FRX'';
+      hello = "$(${waitcat}/bin/waitcat ${config.age.secrets.hello.path})";
+      PAGER = "less -FRX";
       # Enable UTF-8 support for tmux and other terminal applications
       # Without this, tmux replaces UTF-8 characters with underscores
       # https://github.com/tmux/tmux/wiki/FAQ#how-do-i-use-utf-8

@@ -1,4 +1,10 @@
-{ fetchFromGitHub, lib, protobuf, protoc-gen-go, protoc-gen-go-grpc }:
+{
+  fetchFromGitHub,
+  lib,
+  protobuf,
+  protoc-gen-go,
+  protoc-gen-go-grpc,
+}:
 
 rec {
   version = "0.7.0";
@@ -22,7 +28,11 @@ rec {
   # Generate .pb.go from sibling sysbox-ipc/*.proto. Sysbox doesn't commit
   # generated code; must run before `go mod vendor` so the imports resolve.
   # `modRoot` puts CWD inside one of the three Go modules — go up to repo root.
-  protoNativeBuildInputs = [ protobuf protoc-gen-go protoc-gen-go-grpc ];
+  protoNativeBuildInputs = [
+    protobuf
+    protoc-gen-go
+    protoc-gen-go-grpc
+  ];
 
   protoPreBuild = ''
     pushd ..
@@ -39,7 +49,10 @@ rec {
   meta = with lib; {
     homepage = "https://github.com/nestybox/sysbox";
     license = licenses.asl20;
-    platforms = [ "x86_64-linux" "aarch64-linux" ];
+    platforms = [
+      "x86_64-linux"
+      "aarch64-linux"
+    ];
     maintainers = [ ];
   };
 }

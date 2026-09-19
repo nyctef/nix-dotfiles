@@ -27,7 +27,7 @@ in
       home.file.".pi/agent/AGENTS.md".source = ../agent-instructions.md;
 
       # Just make settings a readonly file for now instead of trying to use
-      # a patch script like the claude code equivalent. We'll lose any 
+      # a patch script like the claude code equivalent. We'll lose any
       # settings mutation done from within pi but hopefully it doesn't
       # complain as much
       home.file.".pi/agent/settings.json".source = ./settings.json;
@@ -63,15 +63,15 @@ in
     })
 
     (lib.mkIf config.pi.webSearch.enable {
-    age.secrets.brave-search-api-key.file = secretFile;
+      age.secrets.brave-search-api-key.file = secretFile;
 
-    # Deploy the web search extension to pi's global extensions directory.
-    # pi auto-discovers *.ts files in ~/.pi/agent/extensions/.
-    home.file.".pi/agent/extensions/websearch.ts".source = ./websearch.ts;
+      # Deploy the web search extension to pi's global extensions directory.
+      # pi auto-discovers *.ts files in ~/.pi/agent/extensions/.
+      home.file.".pi/agent/extensions/websearch.ts".source = ./websearch.ts;
 
-    home.sessionVariables = {
-      BRAVE_SEARCH_API_KEY = ''$(${waitcat}/bin/waitcat ${config.age.secrets.brave-search-api-key.path})'';
-    };
+      home.sessionVariables = {
+        BRAVE_SEARCH_API_KEY = "$(${waitcat}/bin/waitcat ${config.age.secrets.brave-search-api-key.path})";
+      };
     })
   ];
 }

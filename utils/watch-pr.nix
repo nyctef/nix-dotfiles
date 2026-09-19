@@ -2,7 +2,7 @@
 
 pkgs.writeShellApplication {
   name = "watch-pr";
-  
+
   runtimeInputs = with pkgs; [
     fzf
     gh
@@ -10,6 +10,6 @@ pkgs.writeShellApplication {
     gnused
     coreutils
   ];
-  
+
   text = builtins.readFile ./watch-pr.sh;
 }

@@ -1,9 +1,10 @@
-{ lib
-, buildGoModule
-, callPackage
-, libseccomp
-, pkg-config
-, fuse
+{
+  lib,
+  buildGoModule,
+  callPackage,
+  libseccomp,
+  pkg-config,
+  fuse,
 }:
 
 let
@@ -18,7 +19,10 @@ buildGoModule {
   proxyVendor = false;
 
   nativeBuildInputs = [ pkg-config ] ++ common.protoNativeBuildInputs;
-  buildInputs = [ libseccomp fuse ];
+  buildInputs = [
+    libseccomp
+    fuse
+  ];
 
   subPackages = [ "cmd/sysbox-fs" ];
 

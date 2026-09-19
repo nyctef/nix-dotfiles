@@ -1,8 +1,9 @@
-{ lib
-, buildGoModule
-, callPackage
-, libseccomp
-, pkg-config
+{
+  lib,
+  buildGoModule,
+  callPackage,
+  libseccomp,
+  pkg-config,
 }:
 
 let
@@ -30,7 +31,11 @@ buildGoModule {
   nativeBuildInputs = [ pkg-config ] ++ common.protoNativeBuildInputs;
   buildInputs = [ libseccomp ];
 
-  tags = [ "seccomp" "apparmor" "idmapped_mnt" ];
+  tags = [
+    "seccomp"
+    "apparmor"
+    "idmapped_mnt"
+  ];
 
   doCheck = false;
 

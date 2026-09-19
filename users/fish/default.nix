@@ -4,7 +4,7 @@
 {
   config = {
     # install fish, and tell HM to manage it (set session variables etc)
-    programs.fish = { 
+    programs.fish = {
       enable = true;
       shellInit = "
         set -U fish_features qmark-noglob

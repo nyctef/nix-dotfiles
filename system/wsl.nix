@@ -21,7 +21,7 @@
     };
 
     environment.systemPackages = with pkgs; [
-      (pkgs.callPackage ../utils/wsl-toast.nix {})
+      (pkgs.callPackage ../utils/wsl-toast.nix { })
     ];
 
   };

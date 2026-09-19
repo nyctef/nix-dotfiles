@@ -65,14 +65,16 @@ in
 
     # Dedicated container OAuth token (see the `let` block above). No-op until
     # secrets/claude-code-oauth-token.age exists.
-    age.secrets = lib.optionalAttrs hasOauthToken {
-      claudeCodeOauthToken.file = oauthTokenSecret;
-    } // lib.optionalAttrs hasTeamcityToken {
-      teamcityReadToken.file = teamcityTokenSecret;
-    };
+    age.secrets =
+      lib.optionalAttrs hasOauthToken {
+        claudeCodeOauthToken.file = oauthTokenSecret;
+      }
+      // lib.optionalAttrs hasTeamcityToken {
+        teamcityReadToken.file = teamcityTokenSecret;
+      };
     home.sessionVariables = lib.optionalAttrs hasOauthToken {
       # waitcat (not cat) because the shell may start before agenix has decrypted.
-      CLAUDE_DOCKER_OAUTH_TOKEN = ''$(${waitcat}/bin/waitcat ${config.age.secrets.claudeCodeOauthToken.path})'';
+      CLAUDE_DOCKER_OAUTH_TOKEN = "$(${waitcat}/bin/waitcat ${config.age.secrets.claudeCodeOauthToken.path})";
     };
 
     home.packages = with pkgs; [
@@ -86,7 +88,12 @@ in
     # Install claude via native installer if not present
     home.activation.installClaude = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
       if [ ! -x "$HOME/.local/bin/claude" ]; then
-        export PATH="${lib.makeBinPath [ pkgs.curl pkgs.coreutils ]}:$PATH"
+        export PATH="${
+          lib.makeBinPath [
+            pkgs.curl
+            pkgs.coreutils
+          ]
+        }:$PATH"
         run ${pkgs.curl}/bin/curl -fsSL https://claude.ai/install.sh | ${pkgs.bash}/bin/bash
       fi
     '';
@@ -97,7 +104,9 @@ in
     # Note: sandbox.seccomp.bpfPath/applyPath settings.json keys exist in the code but
     # are broken — _DA() doesn't pass them through to the internal config. This symlink
     # approach uses the global npm fallback search path instead.
-    home.file.".npm/lib/node_modules/@anthropic-ai/sandbox-runtime".source = "${claude-sandbox-seccomp}";
+    home.file.".npm/lib/node_modules/@anthropic-ai/sandbox-runtime".source = "${
+      claude-sandbox-seccomp
+    }";
 
     # Patch settings.json declaratively while allowing Claude Code to manage it mutably.
     # This uses a shell script to merge our declarative settings with Claude's runtime settings.
@@ -111,7 +120,8 @@ in
 
     # Skills
     home.file.".claude/skills/pr-review-comments/SKILL.md".source = ./claude-code/pr-review-comments.md;
-    home.file.".claude/skills/reverse-engineer-claude-binary/SKILL.md".source = ./claude-code/reverse-engineer-claude-binary.md;
+    home.file.".claude/skills/reverse-engineer-claude-binary/SKILL.md".source =
+      ./claude-code/reverse-engineer-claude-binary.md;
     home.file.".claude/skills/renovate-triage/SKILL.md".source = ./claude-code/renovate-triage.md;
 
     # Path-scoped rules (only loaded when Claude reads matching files)

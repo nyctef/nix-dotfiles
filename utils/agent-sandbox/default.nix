@@ -41,7 +41,13 @@ pkgs.stdenv.mkDerivation {
 
     for entry in run-claude-sandbox run-pi-sandbox run-agent-sandbox test-sandbox-egress; do
       makeWrapper $libexec/$entry.sh $out/bin/$entry \
-        --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.docker pkgs.coreutils pkgs.git ]}
+        --prefix PATH : ${
+          pkgs.lib.makeBinPath [
+            pkgs.docker
+            pkgs.coreutils
+            pkgs.git
+          ]
+        }
     done
   '';
 

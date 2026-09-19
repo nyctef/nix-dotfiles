@@ -1,6 +1,7 @@
-{ symlinkJoin
-, callPackage
-, lib
+{
+  symlinkJoin,
+  callPackage,
+  lib,
 }:
 
 let
@@ -11,7 +12,11 @@ let
 in
 symlinkJoin {
   name = "sysbox-${common.version}";
-  paths = [ fs mgr runc ];
+  paths = [
+    fs
+    mgr
+    runc
+  ];
 
   passthru = {
     inherit fs mgr runc;

@@ -1,5 +1,10 @@
 flake:
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 let
   cfg = config.virtualisation.sysbox;
@@ -65,7 +70,13 @@ in
       partOf = [ "sysbox.service" ];
       unitConfig.StartLimitIntervalSec = 0;
       # sysbox-mgr preflight shells out to rsync, modprobe, fsck, iptables — keep them on PATH.
-      path = [ pkgs.rsync pkgs.kmod pkgs.util-linux pkgs.e2fsprogs pkgs.iptables ];
+      path = [
+        pkgs.rsync
+        pkgs.kmod
+        pkgs.util-linux
+        pkgs.e2fsprogs
+        pkgs.iptables
+      ];
       serviceConfig = {
         Type = "notify";
         ExecStart = "${cfg.package}/bin/sysbox-mgr";
@@ -101,9 +112,18 @@ in
       description = "Sysbox container runtime";
       documentation = [ "https://github.com/nestybox/sysbox" ];
       wantedBy = [ "multi-user.target" ];
-      bindsTo = [ "sysbox-mgr.service" "sysbox-fs.service" ];
-      after = [ "sysbox-mgr.service" "sysbox-fs.service" ];
-      before = [ "docker.service" "containerd.service" ];
+      bindsTo = [
+        "sysbox-mgr.service"
+        "sysbox-fs.service"
+      ];
+      after = [
+        "sysbox-mgr.service"
+        "sysbox-fs.service"
+      ];
+      before = [
+        "docker.service"
+        "containerd.service"
+      ];
       serviceConfig = {
         Type = "exec";
         ExecStart = pkgs.writeShellScript "sysbox-wrapper" ''
