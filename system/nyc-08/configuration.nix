@@ -1,7 +1,3 @@
-# Azure VM deployed with nixos-anywhere. No hardware-configuration.nix here:
-# the disk layout comes from disk-config.nix and the rest of the hardware is
-# Hyper-V, described by nixpkgs' azure-common profile.
-
 {
   inputs,
   config,
@@ -12,14 +8,14 @@
 }:
 
 let
-  # ~/.ssh/id_nyctef_2026. NixOS installs this under
-  # /etc/ssh/authorized_keys.d/, which sshd reads alongside ~/.ssh/authorized_keys,
-  # so it stays valid independently of home-manager.
+  # important so that we can log in later after nix-anywhere has blatted the system :)
   nyctefKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDFUlR/WWULw+ULRHYaieM2HyKr28qchBTzyqcICqgf8 nyctef-2026";
 in
 
 {
   imports = [
+    # azure-common is a builtin module for azure VMs.
+    # replaces the usual hardware-configuration.nix file
     (modulesPath + "/virtualisation/azure-common.nix")
     inputs.disko.nixosModules.disko
     ./disk-config.nix
@@ -34,13 +30,12 @@ in
   # instance metadata; we want a stable name instead.
   networking.hostName = "nyc-08";
 
-  # azure-common targets x86_64 and asks for console=ttyS0 / earlyprintk=ttyS0.
-  # The serial port on an Azure ARM instance is the PL011 at ttyAMA0, and
-  # earlyprintk is x86-only, so without these the serial console stays blank.
-  # The kernel ignores a console= naming a device that doesn't exist, and the
-  # last console= wins for /dev/console, so appending is enough.
+  # override some azure-common.nix kernel config with ARM-specific stuff
   boot.kernelParams = [
+    # ttyAMA0: ARM-specific serial port
+    # 115200n8: configuring the port
     "console=ttyAMA0,115200n8"
+    # bring up the console as soon as possible to see any kernel issues
     "earlycon"
   ];
   time.timeZone = "Europe/London";
@@ -48,16 +43,23 @@ in
 
   users.users.nyctef = {
     isNormalUser = true;
-    description = "Mark Jordan";
     extraGroups = [ "wheel" ];
     openssh.authorizedKeys.keys = [ nyctefKey ];
   };
 
-  # No passwords are set on this machine; it's SSH-key access only.
+  # since everything is SSH keys instead of passwords
   security.sudo.wheelNeedsPassword = false;
 
-  # Deploys push closures built on tachikoma, which carry no signature the
-  # daemon recognises. Only trusted users may add unsigned paths to the store.
+  # since deploying from another machine (as in bin/deploy-nyc-08.sh)
+  # ends up signing the build result with a different key, nyc-08 won't
+  # trust a build result unless it's coming from a trusted user.
+  # another way that nyctef gets root access on the box.
+  #
+  # TODO: there's probably a better way to accomplish this by configuring
+  # a specific trusted key from the source machine (tachikoma) which might
+  # be worth playing around with
+  #
+  # see `bootstrap.md` for an initial workaround deploying this setting
   nix.settings.trusted-users = [
     "root"
     "nyctef"
