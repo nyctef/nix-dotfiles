@@ -123,6 +123,7 @@ in
     home.file.".claude/skills/reverse-engineer-claude-binary/SKILL.md".source =
       ./claude-code/reverse-engineer-claude-binary.md;
     home.file.".claude/skills/renovate-triage/SKILL.md".source = ./claude-code/renovate-triage.md;
+    home.file.".claude/skills/paste/SKILL.md".source = ./claude-code/paste.md;
 
     # Path-scoped rules (only loaded when Claude reads matching files)
     home.file.".claude/rules/csharp-style.md".source = ./claude-code/csharp-style.md;
