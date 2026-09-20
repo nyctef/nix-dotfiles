@@ -36,6 +36,9 @@
     nyctef-com.url = "git+ssh://git@github.com/nyctef/nyctef.com";
     nyctef-com.flake = false;
 
+    qpaste.url = "github:nyctef/qpaste";
+    qpaste.inputs.nixpkgs.follows = "nixpkgs";
+
     plugins-roslyn-nvim.url = "github:seblyng/roslyn.nvim";
     plugins-roslyn-nvim.flake = false;
   };
@@ -141,8 +144,6 @@
           modules = [
             ./system/configuration.nix
             ./system/nyc-08/configuration.nix
-            ./system/nyc-08/web.nix
-            ./system/nyc-08/beszel.nix
           ];
 
           specialArgs = { inherit inputs; };

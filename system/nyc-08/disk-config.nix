@@ -1,7 +1,13 @@
 # A fairly standard disk partitioning for nix-anywhere.
 # Doublecheck that the pre-install VM shows sda in `lsblk` just to make
 # sure this is the right place to put the filesystem
+{ inputs, ... }:
+
 {
+  imports = [
+    inputs.disko.nixosModules.disko
+  ];
+
   disko.devices.disk.main = {
     type = "disk";
     device = "/dev/sda";

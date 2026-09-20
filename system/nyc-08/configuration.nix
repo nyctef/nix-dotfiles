@@ -1,5 +1,4 @@
 {
-  inputs,
   config,
   lib,
   pkgs,
@@ -17,8 +16,10 @@ in
     # azure-common is a builtin module for azure VMs.
     # replaces the usual hardware-configuration.nix file
     (modulesPath + "/virtualisation/azure-common.nix")
-    inputs.disko.nixosModules.disko
     ./disk-config.nix
+    ./web.nix
+    ./beszel.nix
+    ./paste.nix
   ];
 
   nixpkgs.hostPlatform = "aarch64-linux";
