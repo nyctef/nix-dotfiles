@@ -107,7 +107,9 @@ aka.ms
 # ---- License metadata ----
 clearlydefined.io
 
-
 # ---- Cloud databases ----
 *.snowflakecomputing.com
+
+# ---- Utils ----
+paste.nyctef.com
 
