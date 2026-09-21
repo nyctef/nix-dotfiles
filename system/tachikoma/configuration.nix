@@ -57,4 +57,8 @@
   # substitutes almost everything and only uncached derivations run under qemu.
   # This also adds aarch64-linux to nix.settings.extra-platforms.
   boot.binfmt.emulatedSystems = [ "aarch64-linux" ];
+
+  # Any binfmt registration replaces WSL's own handler for .exe files, so the
+  # WSLInterop registration has to be re-added explicitly alongside the qemu one.
+  wsl.interop.register = true;
 }
