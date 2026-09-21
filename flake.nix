@@ -63,7 +63,6 @@
 
         overlays = [
           (import ./overlays/dotnet.nix)
-          (import ./overlays/jujutsu.nix)
         ];
       };
 
