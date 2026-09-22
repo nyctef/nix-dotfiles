@@ -60,7 +60,7 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
 	run docker image prune -af --filter "until=$((DAYS * 24))h"
 	run docker container prune -f --filter "until=$((DAYS * 24))h"
 	run docker builder prune -af --filter "until=$((DAYS * 24))h"
-	run docker volume prune -f
+	run docker volume prune -af
 else
 	echo "docker daemon not reachable, skipping"
 fi
