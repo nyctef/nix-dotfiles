@@ -4,6 +4,7 @@ let
 
   tachikoma1 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILILVkTijiv2LAt8LG8l8sIPO4xzH70xZTqzEOKob4Yg";
   logikoma = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMCR88ryKVrJSqJpKI4hQoFDfPi/g/T3T/cX8o9aSLbE";
+  nyc-08 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILR6Jr2Y1RqC1wZxkBvOpuMIazbJ25hTuLv1Ye/LaB0C";
   systems = [
     tachikoma1
     logikoma
@@ -18,4 +19,5 @@ in
   "claude-code-oauth-token.age".publicKeys = all;
   "claude-api-token.age".publicKeys = all;
   "teamcity-read-token.age".publicKeys = all;
+  "sweetiebot-env.age".publicKeys = users ++ [ nyc-08 ];
 }

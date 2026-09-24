@@ -20,6 +20,7 @@ in
     ./web.nix
     ./beszel.nix
     ./paste.nix
+    ./sweetiebot.nix
   ];
 
   nixpkgs.hostPlatform = "aarch64-linux";
