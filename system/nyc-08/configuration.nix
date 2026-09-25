@@ -21,6 +21,7 @@ in
     ./beszel.nix
     ./paste.nix
     ./sweetiebot.nix
+    ./tailscale.nix
   ];
 
   nixpkgs.hostPlatform = "aarch64-linux";

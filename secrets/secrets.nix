@@ -20,4 +20,5 @@ in
   "claude-api-token.age".publicKeys = all;
   "teamcity-read-token.age".publicKeys = all;
   "sweetiebot-env.age".publicKeys = users ++ [ nyc-08 ];
+  "nyc-08-tailscale-authkey.age".publicKeys = users ++ [ nyc-08 ];
 }
