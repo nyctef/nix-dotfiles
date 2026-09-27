@@ -36,6 +36,9 @@
     nyctef-com.url = "git+ssh://git@github.com/nyctef/nyctef.com";
     nyctef-com.flake = false;
 
+    blog-nyctef-com.url = "github:nyctef/blog.nyctef.com";
+    blog-nyctef-com.inputs.nixpkgs.follows = "nixpkgs";
+
     qpaste.url = "github:nyctef/qpaste";
     qpaste.inputs.nixpkgs.follows = "nixpkgs";
 

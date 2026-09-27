@@ -20,6 +20,7 @@ in
     ./web.nix
     ./beszel.nix
     ./paste.nix
+    ./blog.nix
     ./sweetiebot.nix
     ./tailscale.nix
   ];
