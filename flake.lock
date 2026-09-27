@@ -309,11 +309,11 @@
     "nyctef-com": {
       "flake": false,
       "locked": {
-        "lastModified": 1496929330,
-        "narHash": "sha256-F6XzuIGONk2ybUYrWREhr52kiVVhae5syZavJhUx7pE=",
+        "lastModified": 1790501459,
+        "narHash": "sha256-W1znZ+NS8YFxAjrLHBBch/kNwHwZNW1QNLU1oS0J3JM=",
         "ref": "refs/heads/master",
-        "rev": "c0557d2b59d98f0035676e7771c36c118f1eb89a",
-        "revCount": 3,
+        "rev": "aaeb43413c30b859155fc3c23baf5db81f735b7e",
+        "revCount": 4,
         "type": "git",
         "url": "ssh://git@github.com/nyctef/nyctef.com"
       },
