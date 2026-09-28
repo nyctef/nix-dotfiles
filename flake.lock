@@ -31,11 +31,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1790532177,
-        "narHash": "sha256-GFp04jt+bAG4y1bPQEMrsIqQVwiTaK427CQHGVvp7wY=",
+        "lastModified": 1790624888,
+        "narHash": "sha256-478p97iwZDd3JnE/rT19H0RH/wJabksNZulcdBwVRgg=",
         "owner": "nyctef",
         "repo": "blog.nyctef.com",
-        "rev": "211336b3581e95afdc1d39985d0da8e70ed4843c",
+        "rev": "2cd6338596b1648d834730cd9a809fbc71261137",
         "type": "github"
       },
       "original": {
