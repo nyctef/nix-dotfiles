@@ -118,3 +118,5 @@ clearlydefined.io
 # ---- Utils ----
 paste.nyctef.com
 
+# ---- Other ----
+*.digicert.com
