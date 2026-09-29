@@ -39,8 +39,13 @@ red-gate.pkgs.visualstudio.com
 # opportunistic exfil to arbitrary blob storage, consistent with the Phase D
 # "control, not a wall" framing. (Glob entry — needs the '*' matcher below.)
 *vsblobprod*.blob.core.windows.net
+# python
 pypi.org
 files.pythonhosted.org
+# get-pip
+bootstrap.pypa.io
+# uv
+astral.sh
 
 # ---- Docker ----
 registry-1.docker.io
