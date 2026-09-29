@@ -48,6 +48,11 @@ run-agent-sandbox --agent-cmd <cmd> [options] [-- agent args...]
 
 Each run gets its own container, sidecar, network, CA, and Docker data-root
 (all suffixed with the launcher's PID), so parallel sandboxes never collide.
+
+`sandbox-blocked-domains [count]` lists the most recently blocked egress
+destinations (default 50) for each running sidecar. Each block is headed with
+the repo name and worktree, taken from the `agent-sandbox.project` and
+`agent-sandbox.worktree` container labels.
 Everything is removed on exit.
 
 ## Architecture

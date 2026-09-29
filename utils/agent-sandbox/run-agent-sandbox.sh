@@ -146,6 +146,13 @@ else
     HOST_PROJECT_DIR="$HOST_REPO_DIR"
 fi
 
+# Descriptive labels on the containers, for tools like
+# sandbox-blocked-domains.sh that list running sandboxes.
+META_LABELS=(
+    --label "agent-sandbox.project=$(basename "$HOST_REPO_DIR")"
+    --label "agent-sandbox.worktree=$WORKTREE_NAME"
+)
+
 # ---------- pre-flight checks ----------
 
 if ! command -v docker &>/dev/null; then
@@ -409,6 +416,8 @@ echo "Starting sidecar proxy ($SIDECAR_NAME)..."
 docker run -d \
     --name "$SIDECAR_NAME" \
     --label "$SANDBOX_LABEL=$$" \
+    --label "agent-sandbox.role=sidecar" \
+    "${META_LABELS[@]}" \
     --network bridge \
     -v "$CA_VOLUME:/shared-ca" \
     ${SIDECAR_CRED_ENV[@]+"${SIDECAR_CRED_ENV[@]}"} \
@@ -542,6 +551,8 @@ docker volume create --label "$SANDBOX_LABEL=$$" "$DATA_VOLUME" >/dev/null
 # Run agent in foreground (not exec'd, so EXIT trap runs for cleanup).
 docker run \
     --label "$SANDBOX_LABEL=$$" \
+    --label "agent-sandbox.role=agent" \
+    "${META_LABELS[@]}" \
     --rm \
     -i $([ -t 0 ] && echo '-t') \
     --name "$CONTAINER_NAME" \

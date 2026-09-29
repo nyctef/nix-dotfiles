@@ -8,6 +8,7 @@
 # Layout in $out:
 #   bin/run-claude-sandbox            -> shim for the Claude wrapper (daily use)
 #   bin/run-agent-sandbox             -> shim for the generic core (other agents)
+#   bin/sandbox-blocked-domains       -> recently-blocked egress per running sidecar
 #   libexec/agent-sandbox/
 #     run-claude-sandbox.sh           <- Claude wrapper; calls the core sibling
 #     run-agent-sandbox.sh            <- generic core; BASH_SOURCE points here
@@ -31,15 +32,17 @@ pkgs.stdenv.mkDerivation {
     libexec=$out/libexec/agent-sandbox
     mkdir -p $libexec $out/bin
     cp run-claude-sandbox.sh run-pi-sandbox.sh run-agent-sandbox.sh test-sandbox-egress.sh \
+       sandbox-blocked-domains.sh \
        egress-test-harness.sh Dockerfile Dockerfile.sidecar entrypoint.sh \
        sidecar-entrypoint.sh \
        firewall-domains.txt egress-policy.py github-policy.py graphql_lex.py cred-inject.py \
        credential-map.yaml $libexec/
     chmod +x $libexec/run-claude-sandbox.sh $libexec/run-pi-sandbox.sh $libexec/run-agent-sandbox.sh \
              $libexec/test-sandbox-egress.sh $libexec/egress-test-harness.sh \
+             $libexec/sandbox-blocked-domains.sh \
              $libexec/entrypoint.sh $libexec/sidecar-entrypoint.sh
 
-    for entry in run-claude-sandbox run-pi-sandbox run-agent-sandbox test-sandbox-egress; do
+    for entry in run-claude-sandbox run-pi-sandbox run-agent-sandbox test-sandbox-egress sandbox-blocked-domains; do
       makeWrapper $libexec/$entry.sh $out/bin/$entry \
         --prefix PATH : ${
           pkgs.lib.makeBinPath [
