@@ -45,6 +45,14 @@
   # disable CUPS browsed for auto printer detection due to general insecurity
   services.printing.browsed.enable = false;
 
+  # roots that chain to the compromised eMudhra intermediates, until nixpkgs ships
+  # NSS >= 3.131.1. names must match the labels in the cacert bundle.
+  # https://emudhra.we-have-a-problem.com/
+  security.pki.caCertificateBlacklist = [
+    "emSign ECC Root CA - G3"
+    "Comodo AAA Services root"
+  ];
+
   # Enable the OpenSSH daemon.
   services.openssh = {
     enable = true;
