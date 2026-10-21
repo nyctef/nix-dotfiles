@@ -14,15 +14,15 @@ buildGoModule {
   inherit (common) version src ldflags;
 
   modRoot = "sysbox-runc";
-  vendorHash = "sha256-HeqJrSOZl/aBLr0rSm8dDKpOKrgCNL0mgVfHbcxFW6w=";
-  proxyVendor = false;
+  vendorHash = "sha256-fNrG1F9t3DRl8Vtw3ex1zBwfa3EZKFokPwdPMYGOaaw=";
+  proxyVendor = true;
 
   # oom_score_adj is only an OOM-kill priority hint, but on this kernel the
   # write is rejected with EACCES, which otherwise aborts container startup.
-  # Warn and continue. (Patches the vendored runc copy, which is what cgo
-  # actually compiles.)
-  postConfigure = ''
-    substituteInPlace vendor/github.com/opencontainers/runc/libcontainer/nsenter/nsexec.c \
+  # Warn and continue. (go.mod replaces opencontainers/runc with ./, so this
+  # source file is what cgo actually compiles.)
+  postPatch = ''
+    substituteInPlace sysbox-runc/libcontainer/nsenter/nsexec.c \
       --replace-fail \
         'bail("failed to update /proc/self/oom_score_adj");' \
         'write_log(WARNING, "failed to update /proc/self/oom_score_adj: %m");'
@@ -39,10 +39,7 @@ buildGoModule {
 
   doCheck = false;
 
-  overrideModAttrs = old: {
-    nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ common.protoNativeBuildInputs;
-    preBuild = (old.preBuild or "") + common.protoPreBuild;
-  };
+  inherit (common) overrideModAttrs;
 
   preBuild = common.protoPreBuild;
 

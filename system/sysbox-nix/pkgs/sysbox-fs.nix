@@ -15,8 +15,8 @@ buildGoModule {
   inherit (common) version src ldflags;
 
   modRoot = "sysbox-fs";
-  vendorHash = "sha256-nNCRI0KK3bw7SIJQyFN0EIrJpU2aspLH6IVeQ4ZiobE=";
-  proxyVendor = false;
+  vendorHash = "sha256-UG8SqdjivSBRhw47rE8mIjLGcoc7D7bKYxzzdPanyoI=";
+  proxyVendor = true;
 
   nativeBuildInputs = [ pkg-config ] ++ common.protoNativeBuildInputs;
   buildInputs = [
@@ -28,10 +28,7 @@ buildGoModule {
 
   doCheck = false;
 
-  overrideModAttrs = old: {
-    nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ common.protoNativeBuildInputs;
-    preBuild = (old.preBuild or "") + common.protoPreBuild;
-  };
+  inherit (common) overrideModAttrs;
 
   preBuild = common.protoPreBuild;
 

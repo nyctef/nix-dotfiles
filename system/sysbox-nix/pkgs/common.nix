@@ -26,7 +26,8 @@ rec {
   ];
 
   # Generate .pb.go from sibling sysbox-ipc/*.proto. Sysbox doesn't commit
-  # generated code; must run before `go mod vendor` so the imports resolve.
+  # generated code. sysbox-ipc is a local `replace`, so with proxyVendor it's
+  # compiled from the source tree and only the main build needs to generate it.
   # `modRoot` puts CWD inside one of the three Go modules — go up to repo root.
   protoNativeBuildInputs = [
     protobuf
@@ -45,6 +46,13 @@ rec {
     done
     popd
   '';
+
+  # buildGoModule passes nativeBuildInputs and preBuild through to the module
+  # fetcher. Keep protoc out of it so vendorHash only depends on go.sum.
+  overrideModAttrs = old: {
+    nativeBuildInputs = lib.subtractLists protoNativeBuildInputs old.nativeBuildInputs;
+    preBuild = "";
+  };
 
   meta = with lib; {
     homepage = "https://github.com/nestybox/sysbox";
