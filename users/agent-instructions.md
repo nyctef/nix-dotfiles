@@ -1,6 +1,8 @@
 ## Committing
 
 - commit regularly to checkpoint changes. Commit early and often. More commits is usually better.
+  - split refactorings out into their own commits: eg if extracting or moving a code and changing it at the same time, having the move in its own commit makes reviewing it much easier.
+  - refactoring-only commits should be clearly marked with `refactor: `. doublecheck that they don't introduce logic changes.
 - do not add github issue references to commit messages
 
 ## General instructions
