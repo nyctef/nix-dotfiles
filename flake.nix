@@ -42,7 +42,7 @@
     qpaste.url = "github:nyctef/qpaste";
     qpaste.inputs.nixpkgs.follows = "nixpkgs";
 
-    sweetiebot.url = "github:nyctef/sweetiebot/nix-flake";
+    sweetiebot.url = "github:nyctef/sweetiebot";
     sweetiebot.inputs.nixpkgs.follows = "nixpkgs";
 
     plugins-roslyn-nvim.url = "github:seblyng/roslyn.nvim";
