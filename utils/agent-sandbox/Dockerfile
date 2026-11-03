@@ -32,6 +32,12 @@ RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/git
       https://cli.github.com/packages stable main" \
       > /etc/apt/sources.list.d/github-cli.list
 
+# Git maintainers' PPA (Ubuntu 24.04 ships 2.43 which doesn't understand the `relativeworktrees` extension set by the host git).
+ADD --chmod=0644 "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xF911AB184317630C59970973E363C90F8F1B6217" /etc/apt/keyrings/git-core-ppa.asc
+RUN echo "deb [signed-by=/etc/apt/keyrings/git-core-ppa.asc] \
+      https://ppa.launchpadcontent.net/git-core/ppa/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") main" \
+      > /etc/apt/sources.list.d/git-core-ppa.list
+
 # Microsoft repo (PowerShell). Register key+list by hand; the prod .deb depends
 # on ca-certificates and dpkg rejects installing it standalone.
 ADD --chmod=0644 https://packages.microsoft.com/keys/microsoft.asc /etc/apt/keyrings/microsoft.asc
