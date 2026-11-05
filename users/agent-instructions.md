@@ -2,7 +2,8 @@
 
 - commit regularly to checkpoint changes. Commit early and often. More commits is usually better.
   - split refactorings out into their own commits: eg if extracting or moving a code and changing it at the same time, having the move in its own commit makes reviewing it much easier.
-  - refactoring-only commits should be clearly marked with `refactor: `. doublecheck that they don't introduce logic changes.
+  - refactoring-only commits should be clearly marked with `refactor: `.
+  - a commit must only be marked as `refactor: ` if it is a strict refactoring ("extract function", "inline variable", "rename field" etc). any actual changes to the logic are not refactorings
 - do not add github issue references to commit messages
 
 ## General instructions
